@@ -731,11 +731,14 @@ function selectR1ExecutionPlan(
     };
   }
 
+  const isBreakoutRetest =
+    strategy === "BREAKOUT_RETEST_BUY" ||
+    strategy === "BREAKOUT_RETEST_SELL";
+
   const limitStrategy =
     strategy === "TREND_PULLBACK_BUY" ||
     strategy === "TREND_PULLBACK_SELL" ||
-    strategy === "BREAKOUT_RETEST_BUY" ||
-    strategy === "BREAKOUT_RETEST_SELL" ||
+    isBreakoutRetest ||
     strategy === "RANGE_REVERSION";
 
   if (limitStrategy) {
@@ -746,11 +749,11 @@ function selectR1ExecutionPlan(
       return {
         order_type: "BUY_LIMIT",
         ttl_seconds:
-          strategy.startsWith("BREAKOUT_RETEST")
+          isBreakoutRetest
             ? 600
             : 900,
         execution_mode:
-          strategy.startsWith("BREAKOUT_RETEST")
+          isBreakoutRetest
             ? "RETEST_LIMIT"
             : strategy === "RANGE_REVERSION"
               ? "RANGE_EDGE_LIMIT"
@@ -766,15 +769,43 @@ function selectR1ExecutionPlan(
       return {
         order_type: "SELL_LIMIT",
         ttl_seconds:
-          strategy.startsWith("BREAKOUT_RETEST")
+          isBreakoutRetest
             ? 600
             : 900,
         execution_mode:
-          strategy.startsWith("BREAKOUT_RETEST")
+          isBreakoutRetest
             ? "RETEST_LIMIT"
             : strategy === "RANGE_REVERSION"
               ? "RANGE_EDGE_LIMIT"
               : "PULLBACK_LIMIT",
+        auto_renew: false
+      };
+    }
+  }
+
+  // Breakout-retest can also use a short confirmation STOP when price
+  // has already pulled through the planned level and must reclaim/reject it.
+  if (isBreakoutRetest) {
+    if (
+      baseSide === "BUY" &&
+      Number(entry) > Number(market.ask)
+    ) {
+      return {
+        order_type: "BUY_STOP",
+        ttl_seconds: 480,
+        execution_mode: "RETEST_CONFIRMATION_STOP",
+        auto_renew: false
+      };
+    }
+
+    if (
+      baseSide === "SELL" &&
+      Number(entry) < Number(market.bid)
+    ) {
+      return {
+        order_type: "SELL_STOP",
+        ttl_seconds: 480,
+        execution_mode: "RETEST_CONFIRMATION_STOP",
         auto_renew: false
       };
     }
