@@ -5013,10 +5013,19 @@ function r2PullbackCandidate(side, market, h1, m30, m15, m5, highVol) {
     score,
     allowed,
     entry, sl, tp1: roundNumber(tp1,2), tp2: roundNumber(tp2,2), rr1,
-    expiry_hours: highVol ? 4 : (score >= 80 ? 12 : 8),
+    expiry_hours: highVol ? 4 : (score >= 80 ? 24 : 12),
     zone_low: roundNumber(zoneLow,2), zone_high: roundNumber(zoneHigh,2),
     invalidation: roundNumber(invalidation,2),
-    notes: ["H1/M30 trend pullback", inZone ? "Price is already inside value zone" : "Prefer limit entry at value zone"]
+    notes: [
+      "H1/M30 trend pullback",
+      inZone ? "Price is already inside value zone" : "Prefer limit entry at value zone",
+      highVol
+        ? "Expiry: 4h in high volatility"
+        : (score >= 80
+            ? "Expiry: 24h for strong overnight-capable pullback"
+            : "Expiry: 12h for standard pullback"),
+      "No auto-renew; structural invalidation cancels before time expiry"
+    ]
   });
 }
 
@@ -5052,7 +5061,15 @@ function r2BreakoutCandidate(side, market, h1, m30, m15, m5, strength, highVol) 
     expiry_hours: highVol ? 3 : grade === "A" ? 6 : 4,
     breakout_level: roundNumber(level,2), breakout_grade: grade, breakout_buffer: roundNumber(buffer,2),
     invalidation: roundNumber(invalidation,2),
-    notes: [strength.compression ? "Compression present" : "Compression weak", `Breakout grade ${grade}`, chase ? "Do not chase: price extended past stop-entry zone" : "Stop-entry remains structurally usable"]
+    notes: [
+      strength.compression ? "Compression present" : "Compression weak",
+      `Breakout grade ${grade}`,
+      chase ? "Do not chase: price extended past stop-entry zone" : "Stop-entry remains structurally usable",
+      highVol
+        ? "Expiry: 3h in high volatility"
+        : (grade === "A" ? "Expiry: 6h for Grade A breakout" : "Expiry: 4h for standard breakout"),
+      "No auto-renew; structural invalidation cancels before time expiry"
+    ]
   });
 }
 
@@ -5085,7 +5102,13 @@ function r2RetestCandidate(side, market, h1, m30, m15, m5, strength, highVol) {
     expiry_hours: highVol ? 4 : 8,
     zone_low:roundNumber(zoneLow,2), zone_high:roundNumber(zoneHigh,2), breakout_level:roundNumber(level,2),
     invalidation:roundNumber(invalidation,2),
-    notes:[held?"Broken level is holding":"Retest failed to hold", inZone?"Price is in retest zone":"Wait for retest zone", confirm?"M5 confirmation present":"M5 confirmation not required until price reaches zone"]
+    notes:[
+      held?"Broken level is holding":"Retest failed to hold",
+      inZone?"Price is in retest zone":"Wait for retest zone",
+      confirm?"M5 confirmation present":"M5 confirmation not required until price reaches zone",
+      highVol?"Expiry: 4h in high volatility":"Expiry: 8h for retest",
+      "No auto-renew; structural invalidation cancels before time expiry"
+    ]
   });
 }
 
@@ -5118,7 +5141,12 @@ function r2RangeCandidate(side, market, h1, m30, m15, m5) {
     score,allowed,entry,sl,tp1:roundNumber(tp1,2),tp2:roundNumber(tp2,2),rr1,
     expiry_hours:6,zone_low:roundNumber(zoneLow,2),zone_high:roundNumber(zoneHigh,2),
     invalidation:roundNumber(buy?m30.low20:m30.high20,2),
-    notes:[neutral?"No new entry in middle 40-60% of range":"Range edge setup", confirm?"M5 behavior supports reversal":"Wait for edge behavior"]
+    notes:[
+      neutral?"No new entry in middle 40-60% of range":"Range edge setup",
+      confirm?"M5 behavior supports reversal":"Wait for edge behavior",
+      "Expiry: 6h for range pending order",
+      "No auto-renew; structural invalidation cancels before time expiry"
+    ]
   });
 }
 
@@ -5138,6 +5166,9 @@ function r2Candidate(x) {
     risk_usd_price:roundNumber(risk,2),
     rr_tp1:roundNumber(x.rr1,3),
     expiry_hours:x.expiry_hours,
+    expiry_seconds:Number.isFinite(x.expiry_hours) ? Math.round(x.expiry_hours * 3600) : null,
+    expiry_policy:"STRUCTURE_FIRST_THEN_TIME",
+    auto_renew:false,
     overnight_allowed:x.expiry_hours>=8,
     zone_low:x.zone_low??null,
     zone_high:x.zone_high??null,
