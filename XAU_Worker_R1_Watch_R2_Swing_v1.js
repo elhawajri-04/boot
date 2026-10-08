@@ -1,6 +1,7 @@
 const RULES_VERSION = "R1";
 const R2_RULES_VERSION = "R2_SWING_V1";
 const R1_EXECUTION_VERSION = "R1_EXEC_PENDING_AUTO_V1";
+const MAX_ACTIVE_PENDING_ORDERS_PER_SYMBOL = 1;
 const BUILD_VERSION = "R1_FINAL_WATCH_ZONES_R2_SWING_V1";
 
 export default {
@@ -26,7 +27,8 @@ export default {
         watch_zones: true,
         r2_swing_engine: true,
         r2_rules_version: R2_RULES_VERSION,
-        r1_execution_version: R1_EXECUTION_VERSION
+        r1_execution_version: R1_EXECUTION_VERSION,
+        max_active_pending_orders_per_symbol: MAX_ACTIVE_PENDING_ORDERS_PER_SYMBOL
       });
     }
 
@@ -465,6 +467,44 @@ export default {
       const signalId = crypto.randomUUID();
 
       await expireOldSignals(env, symbol);
+
+      if (isPendingOrder) {
+        const activePending =
+          await env.DB.prepare(`
+            SELECT COUNT(*) AS count
+            FROM trade_signals
+            WHERE
+              symbol = ?1
+              AND status IN ('pending','placed')
+              AND expires_at > ?2
+              AND (
+                side LIKE '%_LIMIT'
+                OR side LIKE '%_STOP'
+              )
+          `)
+            .bind(symbol, now)
+            .first();
+
+        const activePendingCount =
+          Number(activePending?.count || 0);
+
+        if (
+          activePendingCount >=
+          MAX_ACTIVE_PENDING_ORDERS_PER_SYMBOL
+        ) {
+          return json(
+            {
+              ok: false,
+              error: "Pending-order limit reached",
+              max_active_pending_orders:
+                MAX_ACTIVE_PENDING_ORDERS_PER_SYMBOL,
+              active_pending_orders:
+                activePendingCount
+            },
+            409
+          );
+        }
+      }
 
       await env.DB.prepare(`
         INSERT INTO trade_signals (
@@ -1620,6 +1660,39 @@ async function handleTradeSubmit(
     env,
     symbol
   );
+
+  if (isPendingOrder) {
+    const activePending =
+      await env.DB.prepare(`
+        SELECT COUNT(*) AS count
+        FROM trade_signals
+        WHERE
+          symbol = ?1
+          AND status IN ('pending','placed')
+          AND expires_at > ?2
+          AND (
+            side LIKE '%_LIMIT'
+            OR side LIKE '%_STOP'
+          )
+      `)
+        .bind(symbol, now)
+        .first();
+
+    const activePendingCount =
+      Number(activePending?.count || 0);
+
+    if (
+      activePendingCount >=
+      MAX_ACTIVE_PENDING_ORDERS_PER_SYMBOL
+    ) {
+      return html(
+        `<h2>Pending-order limit reached</h2>
+         <p>Maximum active pending orders: ${MAX_ACTIVE_PENDING_ORDERS_PER_SYMBOL}</p>
+         <p>Existing active pending orders: ${activePendingCount}</p>`,
+        409
+      );
+    }
+  }
 
   await env.DB.prepare(`
     INSERT INTO trade_signals (
