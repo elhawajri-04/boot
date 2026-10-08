@@ -38,6 +38,7 @@ input int InpMaxDeviationPoints = 50;
 
 input bool InpBlockIfPositionExists = true;
 input bool InpEnablePendingOrders = true;
+input int InpMaxPendingOrders = 1;
 
 
 // Hard safety ceiling
@@ -212,6 +213,15 @@ int OnInit()
       );
 
       return INIT_FAILED;
+   }
+
+   if(InpMaxPendingOrders < 1)
+   {
+      Print(
+         "InpMaxPendingOrders must be at least 1."
+      );
+
+      return INIT_PARAMETERS_INCORRECT;
    }
 
    if(
@@ -2366,6 +2376,60 @@ void ProcessSignal(
 // EXECUTE TRADE
 // ============================================================
 
+int CountManagedPendingOrders()
+{
+   int count = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket =
+         OrderGetTicket(i);
+
+      if(ticket == 0)
+         continue;
+
+      string symbol =
+         OrderGetString(
+            ORDER_SYMBOL
+         );
+
+      long magic =
+         OrderGetInteger(
+            ORDER_MAGIC
+         );
+
+      ENUM_ORDER_TYPE type =
+         (ENUM_ORDER_TYPE)
+         OrderGetInteger(
+            ORDER_TYPE
+         );
+
+      bool isPending =
+         type == ORDER_TYPE_BUY_LIMIT ||
+         type == ORDER_TYPE_SELL_LIMIT ||
+         type == ORDER_TYPE_BUY_STOP ||
+         type == ORDER_TYPE_SELL_STOP ||
+         type == ORDER_TYPE_BUY_STOP_LIMIT ||
+         type == ORDER_TYPE_SELL_STOP_LIMIT;
+
+      if(
+         symbol == _Symbol &&
+         magic == InpMagicNumber &&
+         isPending
+      )
+      {
+         count++;
+      }
+   }
+
+   return count;
+}
+
+
+// ============================================================
+// EXECUTE TRADE
+// ============================================================
+
 void ExecuteTrade(
    string signalId,
    string side,
@@ -2384,6 +2448,35 @@ void ExecuteTrade(
    trade.SetDeviationInPoints(
       InpMaxDeviationPoints
    );
+
+   bool pendingRequested =
+      side == "BUY_LIMIT" ||
+      side == "SELL_LIMIT" ||
+      side == "BUY_STOP" ||
+      side == "SELL_STOP";
+
+   if(
+      pendingRequested &&
+      CountManagedPendingOrders() >=
+      InpMaxPendingOrders
+   )
+   {
+      Print(
+         "Pending-order limit reached. Max=",
+         InpMaxPendingOrders,
+         " Signal=",
+         signalId,
+         " Type=",
+         side
+      );
+
+      AckSignal(
+         signalId,
+         "rejected"
+      );
+
+      return;
+   }
 
    string comment =
       "XAUBridge";
