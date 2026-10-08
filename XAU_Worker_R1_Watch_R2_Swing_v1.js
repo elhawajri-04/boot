@@ -5005,7 +5005,7 @@ function r2PullbackCandidate(side, market, h1, m30, m15, m5, highVol) {
   if (market.spread_points <= 30 && market.market_age_seconds <= 30) score += 5;
   if (highVol) score = Math.max(0, score - 5);
 
-  const allowed = score >= 70 && rr1 >= 1.30 && risk >= 0.60*atr && risk <= 1.50*atr;
+  const allowed = score >= 70 && rr1 >= 1.30 && risk > 0;
   return r2Candidate({
     strategy: buy ? "PULLBACK_BUY" : "PULLBACK_SELL",
     side,
