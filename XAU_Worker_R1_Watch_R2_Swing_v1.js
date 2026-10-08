@@ -25,7 +25,8 @@ export default {
         zones_mode: "AUTO_R1_WATCH",
         watch_zones: true,
         r2_swing_engine: true,
-        r2_rules_version: R2_RULES_VERSION
+        r2_rules_version: R2_RULES_VERSION,
+        r1_execution_version: R1_EXECUTION_VERSION
       });
     }
 
