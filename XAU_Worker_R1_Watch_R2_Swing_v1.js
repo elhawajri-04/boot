@@ -1,5 +1,6 @@
 const RULES_VERSION = "R1";
 const R2_RULES_VERSION = "R2_SWING_V1";
+const R1_EXECUTION_VERSION = "R1_EXEC_PENDING_AUTO_V1";
 const BUILD_VERSION = "R1_FINAL_WATCH_ZONES_R2_SWING_V1";
 
 export default {
@@ -667,6 +668,130 @@ export default {
 
 
 // =============================================================
+// R1 EXECUTION TYPE SELECTOR
+// Qualification remains R1. This only chooses MARKET vs pending
+// after the setup itself has passed and still requires user-confirmed send.
+// =============================================================
+
+function selectR1ExecutionPlan(
+  regimeData,
+  side,
+  entry
+) {
+  const strategy =
+    String(
+      regimeData?.strategy || ""
+    );
+
+  const market =
+    regimeData?.market || {};
+
+  const m5 =
+    regimeData?.metrics?.m5 || {};
+
+  const baseSide =
+    String(side || "")
+      .toUpperCase();
+
+  const current =
+    baseSide === "BUY"
+      ? Number(market.ask)
+      : Number(market.bid);
+
+  const atr =
+    Math.max(
+      Number(m5.atr14) || 0,
+      0.01
+    );
+
+  // If price is effectively at the planned entry, use market.
+  // Otherwise pullback/retest/range setups use a short-lived limit order.
+  const marketThreshold =
+    Math.max(
+      0.20,
+      0.12 * atr
+    );
+
+  const distance =
+    Number.isFinite(current) &&
+    Number.isFinite(Number(entry))
+      ? Math.abs(
+          Number(entry) -
+          current
+        )
+      : 999;
+
+  if (distance <= marketThreshold) {
+    return {
+      order_type: baseSide,
+      ttl_seconds: 60,
+      execution_mode: "MARKET_AT_TRIGGER",
+      auto_renew: false
+    };
+  }
+
+  const limitStrategy =
+    strategy === "TREND_PULLBACK_BUY" ||
+    strategy === "TREND_PULLBACK_SELL" ||
+    strategy === "BREAKOUT_RETEST_BUY" ||
+    strategy === "BREAKOUT_RETEST_SELL" ||
+    strategy === "RANGE_REVERSION";
+
+  if (limitStrategy) {
+    if (
+      baseSide === "BUY" &&
+      Number(entry) < Number(market.ask)
+    ) {
+      return {
+        order_type: "BUY_LIMIT",
+        ttl_seconds:
+          strategy.startsWith("BREAKOUT_RETEST")
+            ? 600
+            : 900,
+        execution_mode:
+          strategy.startsWith("BREAKOUT_RETEST")
+            ? "RETEST_LIMIT"
+            : strategy === "RANGE_REVERSION"
+              ? "RANGE_EDGE_LIMIT"
+              : "PULLBACK_LIMIT",
+        auto_renew: false
+      };
+    }
+
+    if (
+      baseSide === "SELL" &&
+      Number(entry) > Number(market.bid)
+    ) {
+      return {
+        order_type: "SELL_LIMIT",
+        ttl_seconds:
+          strategy.startsWith("BREAKOUT_RETEST")
+            ? 600
+            : 900,
+        execution_mode:
+          strategy.startsWith("BREAKOUT_RETEST")
+            ? "RETEST_LIMIT"
+            : strategy === "RANGE_REVERSION"
+              ? "RANGE_EDGE_LIMIT"
+              : "PULLBACK_LIMIT",
+        auto_renew: false
+      };
+    }
+  }
+
+  // Fallback: never invent the wrong pending direction.
+  // If the planned price is not valid for the strategy's limit geometry,
+  // keep the already-confirmed R1 setup as a market order.
+  return {
+    order_type: baseSide,
+    ttl_seconds: 60,
+    execution_mode: "MARKET_FALLBACK",
+    auto_renew: false
+  };
+}
+
+
+// =============================================================
 // AUTO TRADE PAGE
 // =============================================================
 
@@ -760,6 +885,13 @@ async function handleAutoTradePage(request, env, url) {
       tp
     );
 
+  const executionPlan =
+    selectR1ExecutionPlan(
+      regimeData,
+      side,
+      entry
+    );
+
   let analysisId =
     url.searchParams.get("analysis_id");
 
@@ -845,6 +977,18 @@ async function handleAutoTradePage(request, env, url) {
 
       drift_pass:
         setupData.drift_pass,
+
+      execution_order_type:
+        executionPlan.order_type,
+
+      execution_mode:
+        executionPlan.execution_mode,
+
+      execution_ttl_seconds:
+        executionPlan.ttl_seconds,
+
+      execution_auto_renew:
+        false,
 
       market:
         regimeData.market,
@@ -1077,6 +1221,21 @@ Setup Score:
 <strong>${escapeHtml(setupData.setup_score)}</strong>
 </p>
 
+<p>
+Execution:
+<strong>${escapeHtml(executionPlan.order_type)}</strong>
+</p>
+
+<p>
+Execution mode:
+<strong>${escapeHtml(executionPlan.execution_mode)}</strong>
+</p>
+
+<p>
+TTL:
+<strong>${escapeHtml(executionPlan.ttl_seconds)} sec</strong>
+</p>
+
 <p>Entry: ${escapeHtml(entry)}</p>
 <p>SL: ${escapeHtml(sl)}</p>
 <p>TP: ${escapeHtml(tp)}</p>
@@ -1122,7 +1281,7 @@ $${escapeHtml(setupData.clean_room_usd)}
 <input
   type="hidden"
   name="side"
-  value="${escapeHtml(side)}"
+  value="${escapeHtml(executionPlan.order_type)}"
 >
 
 <input
@@ -1146,7 +1305,7 @@ $${escapeHtml(setupData.clean_room_usd)}
 <input
   type="hidden"
   name="ttl_seconds"
-  value="${escapeHtml(ttl)}"
+  value="${escapeHtml(executionPlan.ttl_seconds)}"
 >
 
 </form>
@@ -1321,6 +1480,31 @@ async function handleTradeSubmit(
       form.get("side") || ""
     ).toUpperCase();
 
+  const allowedSignalSides = [
+    "BUY",
+    "SELL",
+    "BUY_LIMIT",
+    "SELL_LIMIT",
+    "BUY_STOP",
+    "SELL_STOP"
+  ];
+
+  if (!allowedSignalSides.includes(side)) {
+    return html(
+      "<h2>Invalid side/order type</h2>",
+      400
+    );
+  }
+
+  const baseSide =
+    side.startsWith("BUY")
+      ? "BUY"
+      : "SELL";
+
+  const isPendingOrder =
+    side.includes("LIMIT") ||
+    side.includes("STOP");
+
   const entryPrice =
     Number(
       form.get("entry_price")
@@ -1349,7 +1533,9 @@ async function handleTradeSubmit(
     Math.max(
       5,
       Math.min(
-        120,
+        isPendingOrder
+          ? 1200
+          : 120,
         ttlSeconds
       )
     );
@@ -1357,7 +1543,7 @@ async function handleTradeSubmit(
   const validation =
     validateSignal(
       symbol,
-      side,
+      baseSide,
       entryPrice,
       sl,
       tp
