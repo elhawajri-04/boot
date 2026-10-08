@@ -5173,24 +5173,90 @@ function r2NoTrade(reason) {
 
 function r2SelectBestCandidate(candidates, marketState) {
   if (!candidates.length) return null;
-  const valid=candidates.filter(c=>c.allowed&&c.score>=70);
-  if (!valid.length) return candidates[0];
 
-  valid.sort((a,b)=>{
-    const d=b.score-a.score;
-    if(Math.abs(d)>=5) return d;
-    const regimePriority=(c)=>{
-      if(marketState.includes("TREND")&&c.strategy.includes("PULLBACK")) return 4;
-      if(marketState.includes("BREAKOUT")&&c.strategy.includes("BREAKOUT")) return 4;
-      if(marketState.includes("RANGE")&&c.strategy.includes("RANGE")) return 4;
-      if(c.strategy.includes("RETEST")) return 3;
+  // Only an actually executable candidate may become the selected strategy.
+  // Watch-only / blocked candidates remain visible in selector.candidates,
+  // but they must not masquerade as the active setup.
+  const valid = candidates.filter(
+    c => c.allowed && c.score >= 70
+  );
+
+  if (!valid.length) return null;
+
+  valid.sort((a, b) => {
+    // A material score advantage wins first.
+    const scoreDiff = b.score - a.score;
+    if (Math.abs(scoreDiff) >= 5) return scoreDiff;
+
+    // Keep hard regime compatibility only where the market state itself
+    // defines the strategy family. Do NOT automatically prefer Pullback
+    // merely because the market is trending.
+    const regimePriority = (c) => {
+      if (
+        marketState.includes("BREAKOUT") &&
+        c.strategy.includes("BREAKOUT")
+      ) return 4;
+
+      if (
+        marketState.includes("BREAKOUT") &&
+        c.strategy.includes("RETEST")
+      ) return 3;
+
+      if (
+        marketState.includes("RANGE") &&
+        c.strategy.includes("RANGE")
+      ) return 4;
+
       return 2;
     };
-    const p=regimePriority(b)-regimePriority(a);
-    if(p!==0) return p;
-    if(b.rr_tp1!==a.rr_tp1) return b.rr_tp1-a.rr_tp1;
-    return a.risk_usd_price-b.risk_usd_price;
+
+    const regimeDiff =
+      regimePriority(b) - regimePriority(a);
+
+    if (regimeDiff !== 0) return regimeDiff;
+
+    // With similarly strong setups, prefer the better structural payoff.
+    const rrA = Number.isFinite(a.rr_tp1) ? a.rr_tp1 : 0;
+    const rrB = Number.isFinite(b.rr_tp1) ? b.rr_tp1 : 0;
+
+    if (Math.abs(rrB - rrA) >= 0.05) {
+      return rrB - rrA;
+    }
+
+    // Final tie-break: prefer an entry that is actionable now,
+    // then a confirmed Grade-A breakout stop, before passive waiting.
+    const executionPriority = (c) => {
+      if (c.order_type === "BUY" || c.order_type === "SELL") {
+        return 4;
+      }
+
+      if (
+        (c.order_type === "BUY_STOP" || c.order_type === "SELL_STOP") &&
+        c.breakout_grade === "A"
+      ) {
+        return 3;
+      }
+
+      if (
+        c.strategy.includes("RETEST") &&
+        (c.order_type === "BUY_LIMIT" || c.order_type === "SELL_LIMIT")
+      ) {
+        return 2;
+      }
+
+      return 1;
+    };
+
+    const executionDiff =
+      executionPriority(b) - executionPriority(a);
+
+    if (executionDiff !== 0) return executionDiff;
+
+    // If everything else is effectively equal, prefer the cleaner
+    // lower-distance execution rather than forcing a strategy family.
+    return a.risk_usd_price - b.risk_usd_price;
   });
+
   return valid[0];
 }
 
