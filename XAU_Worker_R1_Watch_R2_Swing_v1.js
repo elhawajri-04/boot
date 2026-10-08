@@ -1,6 +1,7 @@
 const RULES_VERSION = "R1";
 const R2_RULES_VERSION = "R2_SWING_V1";
 const R1_EXECUTION_VERSION = "R1_EXEC_PENDING_AUTO_V1";
+const R1_ARMED_VERSION = "R1_ZONE_ARMED_CONFIRMATION_V1";
 const MAX_ACTIVE_PENDING_ORDERS_PER_SYMBOL = 1;
 const BUILD_VERSION = "R1_FINAL_WATCH_ZONES_R2_SWING_V1";
 
@@ -28,6 +29,7 @@ export default {
         r2_swing_engine: true,
         r2_rules_version: R2_RULES_VERSION,
         r1_execution_version: R1_EXECUTION_VERSION,
+        r1_armed_version: R1_ARMED_VERSION,
         max_active_pending_orders_per_symbol: MAX_ACTIVE_PENDING_ORDERS_PER_SYMBOL
       });
     }
@@ -2688,13 +2690,29 @@ async function handleLatestZones(
     }
 
     const zones = calculateAutoDecisionZonesR1(regimeData);
+    const armed = calculateR1ArmedConfirmation(regimeData, zones);
 
     return json({
       ok: true,
       build: BUILD_VERSION,
       rules_version: RULES_VERSION,
+      r1_armed_version: R1_ARMED_VERSION,
       symbol,
-      zones
+      zones: {
+        ...zones,
+        armed_state: armed.state,
+        armed_side: armed.side,
+        armed_order_type: armed.order_type,
+        armed_entry: armed.entry,
+        armed_sl: armed.sl,
+        armed_tp: armed.tp,
+        armed_rr: armed.rr,
+        armed_ttl_seconds: armed.ttl_seconds,
+        armed_ready: armed.ready,
+        armed_reason: armed.reason,
+        armed_near_zone: armed.near_zone,
+        armed_confirmation: armed.confirmation
+      }
     });
   } catch (error) {
     return json({ ok: false, error: String(error?.message || error) }, 500);
@@ -2781,6 +2799,312 @@ function calculateAutoDecisionZonesR1(regimeData) {
     buy_high: buyHigh,
     sell_low: sellLow,
     sell_high: sellHigh
+  };
+}
+
+
+// =============================================================
+// R1 WATCH ZONE -> ARMED CONFIRMATION
+// This does NOT create a broker signal. It prepares the pending
+// execution candidate after a completed M1 confirmation while
+// preserving the original R1 regime/volatility/RR/room gates.
+// =============================================================
+
+function calculateR1ArmedConfirmation(
+  regimeData,
+  zones
+) {
+  const market = regimeData.market;
+  const { m30, m15, m5, m1 } = regimeData.metrics;
+
+  const atr =
+    Math.max(
+      Number(m1.atr14) || 0,
+      0.01
+    );
+
+  const point = 0.01;
+  const spreadUsd =
+    Math.max(
+      0,
+      Number(market.spread_points || 0) *
+      point
+    );
+
+  const proximity =
+    Math.max(
+      0.20 * atr,
+      2 * spreadUsd
+    );
+
+  const validBuyZone =
+    Number.isFinite(Number(zones.buy_low)) &&
+    Number.isFinite(Number(zones.buy_high)) &&
+    Number(zones.buy_low) > 0 &&
+    Number(zones.buy_high) > Number(zones.buy_low);
+
+  const validSellZone =
+    Number.isFinite(Number(zones.sell_low)) &&
+    Number.isFinite(Number(zones.sell_high)) &&
+    Number(zones.sell_low) > 0 &&
+    Number(zones.sell_high) > Number(zones.sell_low);
+
+  const ask = Number(market.ask);
+  const bid = Number(market.bid);
+
+  const buyDistance =
+    validBuyZone
+      ? (
+          ask < Number(zones.buy_low)
+            ? Number(zones.buy_low) - ask
+            : ask > Number(zones.buy_high)
+              ? ask - Number(zones.buy_high)
+              : 0
+        )
+      : Infinity;
+
+  const sellDistance =
+    validSellZone
+      ? (
+          bid < Number(zones.sell_low)
+            ? Number(zones.sell_low) - bid
+            : bid > Number(zones.sell_high)
+              ? bid - Number(zones.sell_high)
+              : 0
+        )
+      : Infinity;
+
+  let side = null;
+  let nearZone = false;
+
+  if (
+    buyDistance <= proximity ||
+    sellDistance <= proximity
+  ) {
+    if (buyDistance <= sellDistance) {
+      side = "BUY";
+      nearZone = true;
+    }
+    else {
+      side = "SELL";
+      nearZone = true;
+    }
+  }
+
+  if (!side) {
+    return {
+      state: "WAITING_ZONE",
+      side: null,
+      order_type: "NONE",
+      entry: null,
+      sl: null,
+      tp: null,
+      rr: null,
+      ttl_seconds: 480,
+      ready: false,
+      near_zone: false,
+      confirmation: false,
+      reason: "Price is not close enough to an R1 watch zone."
+    };
+  }
+
+  const confirmation =
+    side === "BUY"
+      ? (
+          m1.close > m1.ema9 &&
+          m1.rsi14 >= 52 &&
+          m1.close_position >= 0.55
+        )
+      : (
+          m1.close < m1.ema9 &&
+          m1.rsi14 <= 48 &&
+          m1.close_position <= 0.45
+        );
+
+  const buffer =
+    Math.max(
+      0.05 * atr,
+      spreadUsd
+    );
+
+  const entry =
+    side === "BUY"
+      ? Number(m1.last_high) + buffer
+      : Number(m1.last_low) - buffer;
+
+  const slBuffer =
+    0.15 * atr;
+
+  const sl =
+    side === "BUY"
+      ? Number(zones.buy_low) - slBuffer
+      : Number(zones.sell_high) + slBuffer;
+
+  const targetCandidates =
+    side === "BUY"
+      ? [m5.high20, m15.high20, m30.high20]
+      : [m5.low20, m15.low20, m30.low20];
+
+  const target =
+    side === "BUY"
+      ? nearestAbove(entry, targetCandidates)
+      : nearestBelow(entry, targetCandidates);
+
+  const risk =
+    Math.abs(
+      entry -
+      sl
+    );
+
+  const reward =
+    target === null
+      ? 0
+      : Math.abs(
+          target -
+          entry
+        );
+
+  const rr =
+    risk > 0
+      ? reward / risk
+      : 0;
+
+  const permission =
+    regimeAllowsSide(
+      regimeData.regime,
+      regimeData.strategy,
+      side
+    );
+
+  const volatilityPass =
+    m5.atr_ratio >= 0.65 &&
+    m5.atr_ratio <= 1.60 &&
+    market.spread_points <= 30;
+
+  const marketAgeSeconds =
+    Math.max(
+      0,
+      (
+        Date.now() -
+        market.cloud_updated_at
+      ) /
+      1000
+    );
+
+  const freshnessPass =
+    marketAgeSeconds <= 30;
+
+  const roomPass =
+    target !== null &&
+    reward >= 7.0;
+
+  const rrPass =
+    rr >= 1.30;
+
+  const ready =
+    nearZone &&
+    confirmation &&
+    permission.allowed &&
+    volatilityPass &&
+    freshnessPass &&
+    roomPass &&
+    rrPass &&
+    risk > 0;
+
+  let state =
+    "WAITING_CONFIRMATION";
+
+  let reason =
+    "Price is near an R1 watch zone. Waiting for completed M1 confirmation.";
+
+  if (confirmation && !permission.allowed) {
+    state =
+      "ARMED_BLOCKED_REGIME";
+
+    reason =
+      permission.reason;
+  }
+  else if (
+    confirmation &&
+    permission.allowed &&
+    (!volatilityPass || !freshnessPass || !roomPass || !rrPass)
+  ) {
+    state =
+      "ARMED_BLOCKED_FILTER";
+
+    const blockers = [];
+
+    if (!volatilityPass) {
+      blockers.push(
+        "ATR/SPREAD"
+      );
+    }
+
+    if (!freshnessPass) {
+      blockers.push(
+        "STALE"
+      );
+    }
+
+    if (!roomPass) {
+      blockers.push(
+        "ROOM_LT_7"
+      );
+    }
+
+    if (!rrPass) {
+      blockers.push(
+        "RR_LT_1_30"
+      );
+    }
+
+    reason =
+      blockers.join(",");
+  }
+  else if (ready) {
+    state =
+      "READY";
+
+    reason =
+      "R1 confirmation stop candidate is ready for human-confirmed submission.";
+  }
+
+  return {
+    state,
+    side,
+    order_type:
+      side === "BUY"
+        ? "BUY_STOP"
+        : "SELL_STOP",
+    entry:
+      roundNumber(
+        entry,
+        2
+      ),
+    sl:
+      roundNumber(
+        sl,
+        2
+      ),
+    tp:
+      target === null
+        ? null
+        : roundNumber(
+            target,
+            2
+          ),
+    rr:
+      target === null
+        ? null
+        : roundNumber(
+            rr,
+            3
+          ),
+    ttl_seconds: 480,
+    ready,
+    near_zone: nearZone,
+    confirmation,
+    reason
   };
 }
 
@@ -5913,6 +6237,24 @@ function buildTimeframeMetrics(
       : 0;
 
   return {
+    last_open:
+      roundNumber(
+        open,
+        4
+      ),
+
+    last_high:
+      roundNumber(
+        high,
+        4
+      ),
+
+    last_low:
+      roundNumber(
+        low,
+        4
+      ),
+
     close:
       roundNumber(
         close,
