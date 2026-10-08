@@ -1034,26 +1034,6 @@ void PollDecisionZones()
          "armed_rr"
       );
 
-   bool changed =
-      analysisId !=
-      g_zoneAnalysisId ||
-      MathAbs(
-         buyLow -
-         g_buyZoneLow
-      ) > _Point / 2.0 ||
-      MathAbs(
-         buyHigh -
-         g_buyZoneHigh
-      ) > _Point / 2.0 ||
-      MathAbs(
-         sellLow -
-         g_sellZoneLow
-      ) > _Point / 2.0 ||
-      MathAbs(
-         sellHigh -
-         g_sellZoneHigh
-      ) > _Point / 2.0;
-
    g_zoneAnalysisId =
       analysisId;
 
