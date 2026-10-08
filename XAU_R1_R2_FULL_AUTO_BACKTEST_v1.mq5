@@ -172,6 +172,8 @@ struct PositionState
 datetime g_lastEval = 0;
 datetime g_lastStructureCheck = 0;
 string g_lastSetupKey = "";
+string g_processedSetupKeys[];
+int g_processedSetupKeyCount = 0;
 
 PendingState g_pending;
 PositionState g_pos;
@@ -1651,6 +1653,26 @@ bool ValidateLevels(R2Candidate &c)
    return false;
 }
 
+bool SetupAlreadyProcessed(string key)
+{
+   for(int i = 0; i < g_processedSetupKeyCount; i++)
+   {
+      if(g_processedSetupKeys[i] == key)
+         return true;
+   }
+
+   return false;
+}
+
+void MarkSetupProcessed(string key)
+{
+   if(key == "" || SetupAlreadyProcessed(key))
+      return;
+
+   ArrayResize(g_processedSetupKeys, g_processedSetupKeyCount + 1);
+   g_processedSetupKeys[g_processedSetupKeyCount++] = key;
+}
+
 // ============================================================
 // EXECUTION
 // ============================================================
@@ -1865,9 +1887,12 @@ void TryExecuteSetup(R1State &r1, R1Zones &zones, R2Result &r2)
 
    string key = SetupKey(c, zones);
 
-   if(key == g_lastSetupKey)
+   if(SetupAlreadyProcessed(key))
       return;
 
+   // Mirrors the live Worker journal behavior:
+   // a structural setup key is processed only once during the test.
+   MarkSetupProcessed(key);
    g_lastSetupKey = key;
    g_readySetups++;
 
@@ -2333,6 +2358,8 @@ void OnDeinit(const int reason)
       " | pending_invalidated=",
       g_pendingInvalidated,
       " | tp1_hits=",
-      g_tp1Hits
+      g_tp1Hits,
+      " | unique_setups=",
+      g_processedSetupKeyCount
    );
 }
