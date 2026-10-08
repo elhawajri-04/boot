@@ -33,7 +33,7 @@ input double InpTP1ClosePercent             = 50.0;
 input bool   InpEnableStructureManagement   = true;
 input int    InpStructureCheckEverySeconds  = 15;
 input bool   InpUsePendingExpiration        = true;
-input bool   InpLogDecisions                = true;
+input bool   InpLogDecisions                = false;
 input bool   InpShowVisualStatus             = true;
 
 // ============================================================
@@ -1785,14 +1785,16 @@ bool OpenMarket(R2Candidate &c, double lot)
 
 bool PlacePending(R2Candidate &c, double lot, string key)
 {
-   datetime expiration = 0;
+   // Keep the broker order GTC in the tester and enforce the R2 TTL
+   // ourselves in ManagePending(). This avoids symbol-specific expiration
+   // restrictions while preserving the strategy's intended lifetime.
+   datetime brokerExpiration = 0;
    ENUM_ORDER_TYPE_TIME typeTime = ORDER_TIME_GTC;
 
+   datetime localExpiration = 0;
+
    if(InpUsePendingExpiration && c.expiry_hours > 0)
-   {
-      expiration = TimeCurrent() + c.expiry_hours * 3600;
-      typeTime = ORDER_TIME_SPECIFIED;
-   }
+      localExpiration = TimeCurrent() + c.expiry_hours * 3600;
 
    bool ok = false;
    double entry = NormalizePrice(c.entry);
@@ -1800,13 +1802,13 @@ bool PlacePending(R2Candidate &c, double lot, string key)
    double tp2 = NormalizePrice(c.tp2);
 
    if(c.order_type == "BUY_LIMIT")
-      ok = trade.BuyLimit(lot, entry, _Symbol, sl, tp2, typeTime, expiration, "R2_" + c.strategy);
+      ok = trade.BuyLimit(lot, entry, _Symbol, sl, tp2, typeTime, brokerExpiration, "R2_" + c.strategy);
    else if(c.order_type == "SELL_LIMIT")
-      ok = trade.SellLimit(lot, entry, _Symbol, sl, tp2, typeTime, expiration, "R2_" + c.strategy);
+      ok = trade.SellLimit(lot, entry, _Symbol, sl, tp2, typeTime, brokerExpiration, "R2_" + c.strategy);
    else if(c.order_type == "BUY_STOP")
-      ok = trade.BuyStop(lot, entry, _Symbol, sl, tp2, typeTime, expiration, "R2_" + c.strategy);
+      ok = trade.BuyStop(lot, entry, _Symbol, sl, tp2, typeTime, brokerExpiration, "R2_" + c.strategy);
    else if(c.order_type == "SELL_STOP")
-      ok = trade.SellStop(lot, entry, _Symbol, sl, tp2, typeTime, expiration, "R2_" + c.strategy);
+      ok = trade.SellStop(lot, entry, _Symbol, sl, tp2, typeTime, brokerExpiration, "R2_" + c.strategy);
 
    if(!ok)
       return false;
@@ -1824,7 +1826,7 @@ bool PlacePending(R2Candidate &c, double lot, string key)
    g_pending.invalidation = c.invalidation;
    g_pending.lot = lot;
    g_pending.placed_at = TimeCurrent();
-   g_pending.expires_at = expiration;
+   g_pending.expires_at = localExpiration;
 
    g_ordersPlaced++;
    g_pendingOrders++;
