@@ -1,6 +1,6 @@
-// XAU Advanced Bridge R2 Swing v2
-// Pending lifecycle + TP1/TP2 + structural M15 management
-// R1 analysis rules are not embedded or modified here.
+// XAU Advanced Bridge R2 Swing v3 Full Visual
+// Pending lifecycle + TP1/TP2 + structural M15 management + live R2 chart visuals.
+// R1 scalp/watch zones are preserved but hidden by default and can be enabled as reference.
 
 #property strict
 
@@ -53,8 +53,9 @@ input double InpTP1ClosePercent = 50.0;
 input bool InpEnableR2StructureManagement = true;
 input int InpStructureCheckEverySeconds = 15;
 
-// Decision zones synced from Worker /zones/latest
-input bool InpDrawDecisionZones = true;
+// R1 scalp/watch reference zones from Worker /zones/latest.
+// Keep OFF during normal R2 swing trading. Turn ON only when R1/scalp zones are requested.
+input bool InpDrawDecisionZones = false;
 input int InpZonePollEverySeconds = 5;
 input bool InpAlertOnZoneEntry = false;
 input color InpBuyZoneColor = clrLimeGreen;
@@ -608,7 +609,7 @@ void RefreshDecisionZoneObjects()
       g_buyZoneLow,
       g_buyZoneHigh,
       InpBuyZoneColor,
-      "R1 BUY WAIT ZONE " +
+      "R1 SCALP REFERENCE BUY ZONE " +
       DoubleToString(
          g_buyZoneLow,
          _Digits
@@ -625,7 +626,7 @@ void RefreshDecisionZoneObjects()
       g_sellZoneLow,
       g_sellZoneHigh,
       InpSellZoneColor,
-      "R1 SELL WAIT ZONE " +
+      "R1 SCALP REFERENCE SELL ZONE " +
       DoubleToString(
          g_sellZoneLow,
          _Digits
@@ -714,7 +715,7 @@ void PollDecisionZones()
       )
       {
          Print(
-            "No saved R1 decision zones. Clearing chart zones."
+            "No saved R1 scalp reference zones. Clearing R1 chart zones."
          );
       }
 
@@ -796,7 +797,7 @@ void PollDecisionZones()
    RefreshDecisionZoneObjects();
 
    Print(
-      "R1 zones updated from Worker. Analysis=",
+      "R1 scalp reference zones updated from Worker. Analysis=",
       g_zoneAnalysisId,
       " BUY=",
       DoubleToString(
@@ -877,7 +878,7 @@ void CheckZoneEntryAlert()
    )
    {
       string msg =
-         "XAU entered R1 BUY waiting zone: " +
+         "XAU entered R1 scalp reference BUY zone: " +
          DoubleToString(
             g_buyZoneLow,
             _Digits
@@ -898,7 +899,7 @@ void CheckZoneEntryAlert()
    )
    {
       string msg =
-         "XAU entered R1 SELL waiting zone: " +
+         "XAU entered R1 scalp reference SELL zone: " +
          DoubleToString(
             g_sellZoneLow,
             _Digits
