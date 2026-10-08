@@ -61,6 +61,7 @@ input int InpZonePollEverySeconds = 5;
 input bool InpAlertOnZoneEntry = false;
 input color InpBuyZoneColor = clrLimeGreen;
 input color InpSellZoneColor = clrTomato;
+input color InpR1ArmedTriggerColor = clrGold;
 
 // R2 live setup visualization from /r2
 input bool InpDrawR2Setup = true;
@@ -99,6 +100,22 @@ bool g_insideSellZone = false;
 
 string ZONE_BUY_OBJECT = "R1_BUY_WAIT_ZONE";
 string ZONE_SELL_OBJECT = "R1_SELL_WAIT_ZONE";
+
+string R1_BUY_LOW_LINE = "R1_BUY_ZONE_LOW";
+string R1_BUY_HIGH_LINE = "R1_BUY_ZONE_HIGH";
+string R1_SELL_LOW_LINE = "R1_SELL_ZONE_LOW";
+string R1_SELL_HIGH_LINE = "R1_SELL_ZONE_HIGH";
+string R1_ARMED_TRIGGER_LINE = "R1_ARMED_TRIGGER";
+string R1_ARMED_SL_LINE = "R1_ARMED_SL";
+string R1_ARMED_TP_LINE = "R1_ARMED_TP";
+
+string g_r1ArmedState = "";
+string g_r1ArmedSide = "";
+string g_r1ArmedOrderType = "";
+double g_r1ArmedEntry = 0.0;
+double g_r1ArmedSL = 0.0;
+double g_r1ArmedTP = 0.0;
+double g_r1ArmedRR = 0.0;
 
 // R2 visual state
 datetime g_lastR2Poll = 0;
@@ -454,15 +471,17 @@ bool ValidZone(
 
 void DeleteDecisionZoneObjects()
 {
-   ObjectDelete(
-      0,
-      ZONE_BUY_OBJECT
-   );
+   ObjectDelete(0, ZONE_BUY_OBJECT);
+   ObjectDelete(0, ZONE_SELL_OBJECT);
 
-   ObjectDelete(
-      0,
-      ZONE_SELL_OBJECT
-   );
+   ObjectDelete(0, R1_BUY_LOW_LINE);
+   ObjectDelete(0, R1_BUY_HIGH_LINE);
+   ObjectDelete(0, R1_SELL_LOW_LINE);
+   ObjectDelete(0, R1_SELL_HIGH_LINE);
+
+   ObjectDelete(0, R1_ARMED_TRIGGER_LINE);
+   ObjectDelete(0, R1_ARMED_SL_LINE);
+   ObjectDelete(0, R1_ARMED_TP_LINE);
 
    ChartRedraw(0);
 }
@@ -475,6 +494,105 @@ void DeleteDecisionZoneObject(
    ObjectDelete(
       0,
       name
+   );
+}
+
+
+void DrawR1HLine(
+   string name,
+   double price,
+   color lineColor,
+   ENUM_LINE_STYLE lineStyle,
+   int width,
+   string tooltip
+)
+{
+   if(price <= 0.0)
+   {
+      ObjectDelete(0, name);
+      return;
+   }
+
+   if(ObjectFind(0, name) < 0)
+   {
+      ResetLastError();
+
+      if(
+         !ObjectCreate(
+            0,
+            name,
+            OBJ_HLINE,
+            0,
+            0,
+            price
+         )
+      )
+      {
+         Print(
+            "Could not create R1 line ",
+            name,
+            ". Error=",
+            GetLastError()
+         );
+
+         return;
+      }
+   }
+
+   ObjectSetDouble(
+      0,
+      name,
+      OBJPROP_PRICE,
+      price
+   );
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_COLOR,
+      lineColor
+   );
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_STYLE,
+      lineStyle
+   );
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_WIDTH,
+      width
+   );
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_SELECTABLE,
+      false
+   );
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_SELECTED,
+      false
+   );
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_HIDDEN,
+      false
+   );
+
+   ObjectSetString(
+      0,
+      name,
+      OBJPROP_TOOLTIP,
+      tooltip
    );
 }
 
@@ -620,15 +738,9 @@ void RefreshDecisionZoneObjects()
       g_buyZoneHigh,
       InpBuyZoneColor,
       "R1 SCALP REFERENCE BUY ZONE " +
-      DoubleToString(
-         g_buyZoneLow,
-         _Digits
-      ) +
+      DoubleToString(g_buyZoneLow, _Digits) +
       " - " +
-      DoubleToString(
-         g_buyZoneHigh,
-         _Digits
-      )
+      DoubleToString(g_buyZoneHigh, _Digits)
    );
 
    DrawDecisionZoneBand(
@@ -637,20 +749,129 @@ void RefreshDecisionZoneObjects()
       g_sellZoneHigh,
       InpSellZoneColor,
       "R1 SCALP REFERENCE SELL ZONE " +
-      DoubleToString(
-         g_sellZoneLow,
-         _Digits
-      ) +
+      DoubleToString(g_sellZoneLow, _Digits) +
       " - " +
-      DoubleToString(
-         g_sellZoneHigh,
-         _Digits
-      )
+      DoubleToString(g_sellZoneHigh, _Digits)
    );
+
+   if(ValidZone(g_buyZoneLow, g_buyZoneHigh))
+   {
+      DrawR1HLine(
+         R1_BUY_LOW_LINE,
+         g_buyZoneLow,
+         InpBuyZoneColor,
+         STYLE_DOT,
+         1,
+         "R1 BUY ZONE LOW"
+      );
+
+      DrawR1HLine(
+         R1_BUY_HIGH_LINE,
+         g_buyZoneHigh,
+         InpBuyZoneColor,
+         STYLE_DOT,
+         1,
+         "R1 BUY ZONE HIGH"
+      );
+   }
+   else
+   {
+      ObjectDelete(0, R1_BUY_LOW_LINE);
+      ObjectDelete(0, R1_BUY_HIGH_LINE);
+   }
+
+   if(ValidZone(g_sellZoneLow, g_sellZoneHigh))
+   {
+      DrawR1HLine(
+         R1_SELL_LOW_LINE,
+         g_sellZoneLow,
+         InpSellZoneColor,
+         STYLE_DOT,
+         1,
+         "R1 SELL ZONE LOW"
+      );
+
+      DrawR1HLine(
+         R1_SELL_HIGH_LINE,
+         g_sellZoneHigh,
+         InpSellZoneColor,
+         STYLE_DOT,
+         1,
+         "R1 SELL ZONE HIGH"
+      );
+   }
+   else
+   {
+      ObjectDelete(0, R1_SELL_LOW_LINE);
+      ObjectDelete(0, R1_SELL_HIGH_LINE);
+   }
+
+   bool armedVisible =
+      g_r1ArmedState == "READY" ||
+      g_r1ArmedState == "ARMED_BLOCKED_REGIME" ||
+      g_r1ArmedState == "ARMED_BLOCKED_FILTER";
+
+   if(armedVisible && g_r1ArmedEntry > 0.0)
+   {
+      ENUM_LINE_STYLE armedStyle =
+         g_r1ArmedState == "READY"
+         ? STYLE_SOLID
+         : STYLE_DASH;
+
+      int armedWidth =
+         g_r1ArmedState == "READY"
+         ? 2
+         : 1;
+
+      DrawR1HLine(
+         R1_ARMED_TRIGGER_LINE,
+         g_r1ArmedEntry,
+         InpR1ArmedTriggerColor,
+         armedStyle,
+         armedWidth,
+         "R1 " +
+         g_r1ArmedOrderType +
+         " TRIGGER | " +
+         g_r1ArmedState
+      );
+
+      if(g_r1ArmedSL > 0.0)
+      {
+         DrawR1HLine(
+            R1_ARMED_SL_LINE,
+            g_r1ArmedSL,
+            clrRed,
+            STYLE_DASH,
+            1,
+            "R1 ARMED SL"
+         );
+      }
+
+      if(g_r1ArmedTP > 0.0)
+      {
+         DrawR1HLine(
+            R1_ARMED_TP_LINE,
+            g_r1ArmedTP,
+            clrLimeGreen,
+            STYLE_DASH,
+            1,
+            "R1 ARMED TP | RR=" +
+            DoubleToString(
+               g_r1ArmedRR,
+               2
+            )
+         );
+      }
+   }
+   else
+   {
+      ObjectDelete(0, R1_ARMED_TRIGGER_LINE);
+      ObjectDelete(0, R1_ARMED_SL_LINE);
+      ObjectDelete(0, R1_ARMED_TP_LINE);
+   }
 
    ChartRedraw(0);
 }
-
 
 void ClearDecisionZoneState()
 {
@@ -663,6 +884,14 @@ void ClearDecisionZoneState()
 
    g_insideBuyZone = false;
    g_insideSellZone = false;
+
+   g_r1ArmedState = "";
+   g_r1ArmedSide = "";
+   g_r1ArmedOrderType = "";
+   g_r1ArmedEntry = 0.0;
+   g_r1ArmedSL = 0.0;
+   g_r1ArmedTP = 0.0;
+   g_r1ArmedRR = 0.0;
 
    DeleteDecisionZoneObjects();
 }
@@ -763,6 +992,48 @@ void PollDecisionZones()
          "sell_high"
       );
 
+   string armedState =
+      JsonGetString(
+         response,
+         "armed_state"
+      );
+
+   string armedSide =
+      JsonGetString(
+         response,
+         "armed_side"
+      );
+
+   string armedOrderType =
+      JsonGetString(
+         response,
+         "armed_order_type"
+      );
+
+   double armedEntry =
+      JsonGetDouble(
+         response,
+         "armed_entry"
+      );
+
+   double armedSL =
+      JsonGetDouble(
+         response,
+         "armed_sl"
+      );
+
+   double armedTP =
+      JsonGetDouble(
+         response,
+         "armed_tp"
+      );
+
+   double armedRR =
+      JsonGetDouble(
+         response,
+         "armed_rr"
+      );
+
    bool changed =
       analysisId !=
       g_zoneAnalysisId ||
@@ -783,9 +1054,6 @@ void PollDecisionZones()
          g_sellZoneHigh
       ) > _Point / 2.0;
 
-   if(!changed)
-      return;
-
    g_zoneAnalysisId =
       analysisId;
 
@@ -800,6 +1068,27 @@ void PollDecisionZones()
 
    g_sellZoneHigh =
       sellHigh;
+
+   g_r1ArmedState =
+      armedState;
+
+   g_r1ArmedSide =
+      armedSide;
+
+   g_r1ArmedOrderType =
+      armedOrderType;
+
+   g_r1ArmedEntry =
+      armedEntry;
+
+   g_r1ArmedSL =
+      armedSL;
+
+   g_r1ArmedTP =
+      armedTP;
+
+   g_r1ArmedRR =
+      armedRR;
 
    g_insideBuyZone = false;
    g_insideSellZone = false;
@@ -827,6 +1116,15 @@ void PollDecisionZones()
       "-",
       DoubleToString(
          g_sellZoneHigh,
+         _Digits
+      ),
+      " ARMED=",
+      g_r1ArmedState,
+      " ",
+      g_r1ArmedOrderType,
+      " @",
+      DoubleToString(
+         g_r1ArmedEntry,
          _Digits
       )
    );
