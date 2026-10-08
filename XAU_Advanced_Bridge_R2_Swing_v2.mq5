@@ -1,3 +1,7 @@
+// XAU Advanced Bridge R2 Swing v2
+// Pending lifecycle + TP1/TP2 + structural M15 management
+// R1 analysis rules are not embedded or modified here.
+
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -40,9 +44,14 @@ input bool InpEnablePendingOrders = true;
 input double InpSafetyMaxLot = 1.00;
 
 
-// Maximum difference between
-// signal reference entry and current price
-input double InpMaxEntryDriftUSD = 1.00;
+// Optional market-order drift protection.
+// 0.0 disables the old scalp-style $1 drift restriction.
+input double InpMaxMarketEntryDriftUSD = 0.00;
+
+// R2 trade management
+input double InpTP1ClosePercent = 50.0;
+input bool InpEnableR2StructureManagement = true;
+input int InpStructureCheckEverySeconds = 15;
 
 // Decision zones synced from Worker /zones/latest
 input bool InpDrawDecisionZones = true;
@@ -94,8 +103,12 @@ struct TrackedTrade
 
    double entry;
    double sl;
-   double tp;
+   double tp1;
+   double tp2;
+
+   double initial_lot;
    double lot;
+   double initial_risk;
 
    datetime open_time;
 
@@ -105,12 +118,34 @@ struct TrackedTrade
    double mfe_usd;
    double mae_usd;
 
+   bool tp1_done;
    bool open_event_sent;
 };
 
+struct PendingTrade
+{
+   bool active;
+
+   string signal_id;
+   ulong order_ticket;
+
+   string side;
+
+   double entry;
+   double sl;
+   double tp1;
+   double tp2;
+   double lot;
+
+   long expires_at_ms;
+};
+
 TrackedTrade g_state;
+PendingTrade g_pending;
 
 string g_stateFile = "";
+
+datetime g_lastStructureCheck = 0;
 
 
 // ============================================================
@@ -158,7 +193,7 @@ int OnInit()
    );
 
    g_stateFile =
-      "XAU_Bridge_State_" +
+      "XAU_Bridge_R2V2_State_" +
       IntegerToString(
          AccountInfoInteger(
             ACCOUNT_LOGIN
@@ -169,6 +204,7 @@ int OnInit()
       ".txt";
 
    ResetTrackedState();
+   ResetPendingState();
 
    LoadTrackedState();
 
@@ -179,7 +215,8 @@ int OnInit()
       _Symbol
    );
 
-   // Recover old position state immediately
+   // Recover position / pending state immediately
+   CheckPendingTrade();
    CheckTrackedTrade();
 
    if(InpDrawDecisionZones)
@@ -202,7 +239,7 @@ void OnDeinit(
 {
    EventKillTimer();
 
-   if(g_state.active)
+   if(g_state.active || g_pending.active)
       SaveTrackedState();
 
    DeleteDecisionZoneObjects();
@@ -272,10 +309,27 @@ void OnTimer()
    CheckZoneEntryAlert();
 
    // --------------------------------------------------------
-   // TRACK OPEN/CLOSED POSITION
+   // TRACK PENDING + OPEN/CLOSED POSITION
    // --------------------------------------------------------
 
+   CheckPendingTrade();
    CheckTrackedTrade();
+
+   if(
+      InpEnableR2StructureManagement &&
+      g_state.active &&
+      (
+         g_lastStructureCheck == 0 ||
+         now - g_lastStructureCheck >=
+         InpStructureCheckEverySeconds
+      )
+   )
+   {
+      ManageR2Trade();
+
+      g_lastStructureCheck =
+         now;
+   }
 }
 
 
@@ -1107,11 +1161,29 @@ void PollSignal()
          "sl"
       );
 
-   double tp =
+   double tp1 =
       JsonGetDouble(
          response,
-         "tp"
+         "tp1"
       );
+
+   if(tp1 <= 0.0)
+   {
+      tp1 =
+         JsonGetDouble(
+            response,
+            "tp"
+         );
+   }
+
+   double tp2 =
+      JsonGetDouble(
+         response,
+         "tp2"
+      );
+
+   if(tp2 <= 0.0)
+      tp2 = tp1;
 
    long expiresAt =
       (long)
@@ -1147,7 +1219,8 @@ void PollSignal()
       side,
       entry,
       sl,
-      tp,
+      tp1,
+      tp2,
       expiresAt
    );
 }
@@ -1162,7 +1235,8 @@ void ProcessSignal(
    string side,
    double referenceEntry,
    double sl,
-   double tp,
+   double tp1,
+   double tp2,
    long expiresAt
 )
 {
@@ -1230,6 +1304,27 @@ void ProcessSignal(
       return;
    }
 
+   if(
+      g_pending.active ||
+      HasPendingOrderOnSymbol()
+   )
+   {
+      MessageBox(
+         "A pending XAU order is already active.\n\n"
+         "Cancel or resolve it before accepting a new R2 setup.",
+         "XAU Bridge",
+         MB_OK |
+         MB_ICONWARNING
+      );
+
+      AckSignal(
+         signalId,
+         "rejected"
+      );
+
+      return;
+   }
+
    MqlTick tick;
 
    if(
@@ -1264,7 +1359,7 @@ void ProcessSignal(
    if(
       isMarket &&
       referenceEntry > 0 &&
-      InpMaxEntryDriftUSD > 0
+      InpMaxMarketEntryDriftUSD > 0
    )
    {
       double drift =
@@ -1275,7 +1370,7 @@ void ProcessSignal(
 
       if(
          drift >
-         InpMaxEntryDriftUSD
+         InpMaxMarketEntryDriftUSD
       )
       {
          string msg =
@@ -1335,7 +1430,7 @@ void ProcessSignal(
          baseSide,
          validationPrice,
          sl,
-         tp,
+         tp2,
          validationError
       )
    )
@@ -1343,6 +1438,32 @@ void ProcessSignal(
       MessageBox(
          validationError,
          "Invalid SL / TP",
+         MB_OK |
+         MB_ICONWARNING
+      );
+
+      AckSignal(
+         signalId,
+         "failed"
+      );
+
+      return;
+   }
+
+   if(
+      !ValidateR2Targets(
+         baseSide,
+         validationPrice,
+         sl,
+         tp1,
+         tp2,
+         validationError
+      )
+   )
+   {
+      MessageBox(
+         validationError,
+         "Invalid R2 targets",
          MB_OK |
          MB_ICONWARNING
       );
@@ -1447,9 +1568,15 @@ void ProcessSignal(
          _Digits
       ) +
       "\n" +
-      "TP: " +
+      "TP1: " +
       DoubleToString(
-         tp,
+         tp1,
+         _Digits
+      ) +
+      "\n" +
+      "TP2: " +
+      DoubleToString(
+         tp2,
          _Digits
       ) +
       "\n\n" +
@@ -1479,7 +1606,8 @@ void ProcessSignal(
       referenceEntry,
       lot,
       sl,
-      tp,
+      tp1,
+      tp2,
       expiresAt
    );
 }
@@ -1495,7 +1623,8 @@ void ExecuteTrade(
    double referenceEntry,
    double lot,
    double sl,
-   double tp,
+   double tp1,
+   double tp2,
    long expiresAt
 )
 {
@@ -1513,13 +1642,18 @@ void ExecuteTrade(
    bool success =
       false;
 
+   double brokerTP =
+      tp2 > 0.0
+      ? tp2
+      : tp1;
+
    if(side == "BUY")
    {
-      success = trade.Buy(lot, _Symbol, 0.0, sl, tp, comment);
+      success = trade.Buy(lot, _Symbol, 0.0, sl, brokerTP, comment);
    }
    else if(side == "SELL")
    {
-      success = trade.Sell(lot, _Symbol, 0.0, sl, tp, comment);
+      success = trade.Sell(lot, _Symbol, 0.0, sl, brokerTP, comment);
    }
    else
    {
@@ -1533,13 +1667,13 @@ void ExecuteTrade(
       }
 
       if(side == "BUY_LIMIT")
-         success = trade.BuyLimit(lot, referenceEntry, _Symbol, sl, tp, timeType, expiry, comment);
+         success = trade.BuyLimit(lot, referenceEntry, _Symbol, sl, brokerTP, timeType, expiry, comment);
       else if(side == "SELL_LIMIT")
-         success = trade.SellLimit(lot, referenceEntry, _Symbol, sl, tp, timeType, expiry, comment);
+         success = trade.SellLimit(lot, referenceEntry, _Symbol, sl, brokerTP, timeType, expiry, comment);
       else if(side == "BUY_STOP")
-         success = trade.BuyStop(lot, referenceEntry, _Symbol, sl, tp, timeType, expiry, comment);
+         success = trade.BuyStop(lot, referenceEntry, _Symbol, sl, brokerTP, timeType, expiry, comment);
       else if(side == "SELL_STOP")
-         success = trade.SellStop(lot, referenceEntry, _Symbol, sl, tp, timeType, expiry, comment);
+         success = trade.SellStop(lot, referenceEntry, _Symbol, sl, brokerTP, timeType, expiry, comment);
    }
 
    if(!success)
@@ -1567,17 +1701,55 @@ void ExecuteTrade(
 
    if(pendingPlaced)
    {
+      ResetPendingState();
+
+      g_pending.active =
+         true;
+
+      g_pending.signal_id =
+         signalId;
+
+      g_pending.order_ticket =
+         trade.ResultOrder();
+
+      g_pending.side =
+         side;
+
+      g_pending.entry =
+         referenceEntry;
+
+      g_pending.sl =
+         sl;
+
+      g_pending.tp1 =
+         tp1;
+
+      g_pending.tp2 =
+         tp2;
+
+      g_pending.lot =
+         lot;
+
+      g_pending.expires_at_ms =
+         expiresAt;
+
+      SaveTrackedState();
+
       AckSignal(signalId, "placed");
 
       Print(
          "Pending order placed. Signal=",
          signalId,
          " Order=",
-         trade.ResultOrder(),
+         g_pending.order_ticket,
          " Type=",
          side,
          " Entry=",
          DoubleToString(referenceEntry, _Digits),
+         " TP1=",
+         DoubleToString(tp1, _Digits),
+         " TP2=",
+         DoubleToString(tp2, _Digits),
          " Lot=",
          DoubleToString(lot, 2)
       );
@@ -1653,11 +1825,23 @@ void ExecuteTrade(
    g_state.sl =
       sl;
 
-   g_state.tp =
-      tp;
+   g_state.tp1 =
+      tp1;
+
+   g_state.tp2 =
+      tp2;
+
+   g_state.initial_lot =
+      volume;
 
    g_state.lot =
       volume;
+
+   g_state.initial_risk =
+      MathAbs(
+         fillPrice -
+         sl
+      );
 
    g_state.open_time =
       openTime;
@@ -1673,6 +1857,9 @@ void ExecuteTrade(
 
    g_state.mae_usd =
       0.0;
+
+   g_state.tp1_done =
+      false;
 
    g_state.open_event_sent =
       false;
@@ -1776,7 +1963,9 @@ bool SendOpenEvent()
    payload +=
       "\"volume\":" +
       DoubleToString(
-         g_state.lot,
+         g_state.initial_lot > 0.0
+         ? g_state.initial_lot
+         : g_state.lot,
          2
       ) +
       ",";
@@ -2497,7 +2686,9 @@ bool SendCloseEventFromHistory()
    payload +=
       "\"volume\":" +
       DoubleToString(
-         g_state.lot,
+         g_state.initial_lot > 0.0
+         ? g_state.initial_lot
+         : g_state.lot,
          2
       ) +
       ",";
@@ -2961,6 +3152,1070 @@ bool ValidateStops(
 
 
 // ============================================================
+// VALIDATE R2 TARGETS
+// ============================================================
+
+bool ValidateR2Targets(
+   string side,
+   double entry,
+   double sl,
+   double tp1,
+   double tp2,
+   string &error
+)
+{
+   if(
+      !MathIsValidNumber(entry) ||
+      !MathIsValidNumber(sl) ||
+      !MathIsValidNumber(tp1) ||
+      !MathIsValidNumber(tp2) ||
+      entry <= 0.0 ||
+      sl <= 0.0 ||
+      tp1 <= 0.0 ||
+      tp2 <= 0.0
+   )
+   {
+      error =
+         "Invalid R2 Entry / SL / TP1 / TP2.";
+
+      return false;
+   }
+
+   if(side == "BUY")
+   {
+      if(
+         !(
+            sl < entry &&
+            entry < tp1 &&
+            tp1 <= tp2
+         )
+      )
+      {
+         error =
+            "R2 BUY requires:\n"
+            "SL < Entry < TP1 <= TP2";
+
+         return false;
+      }
+   }
+   else
+   {
+      if(
+         !(
+            tp2 <= tp1 &&
+            tp1 < entry &&
+            entry < sl
+         )
+      )
+      {
+         error =
+            "R2 SELL requires:\n"
+            "TP2 <= TP1 < Entry < SL";
+
+         return false;
+      }
+   }
+
+   return true;
+}
+
+
+// ============================================================
+// PENDING ORDER HELPERS
+// ============================================================
+
+bool HasPendingOrderOnSymbol()
+{
+   int total =
+      OrdersTotal();
+
+   for(
+      int i = 0;
+      i < total;
+      i++
+   )
+   {
+      ulong ticket =
+         OrderGetTicket(i);
+
+      if(ticket == 0)
+         continue;
+
+      string symbol =
+         OrderGetString(
+            ORDER_SYMBOL
+         );
+
+      long magic =
+         OrderGetInteger(
+            ORDER_MAGIC
+         );
+
+      if(
+         symbol != _Symbol ||
+         magic != InpMagicNumber
+      )
+      {
+         continue;
+      }
+
+      ENUM_ORDER_TYPE type =
+         (ENUM_ORDER_TYPE)
+         OrderGetInteger(
+            ORDER_TYPE
+         );
+
+      if(
+         type == ORDER_TYPE_BUY_LIMIT ||
+         type == ORDER_TYPE_SELL_LIMIT ||
+         type == ORDER_TYPE_BUY_STOP ||
+         type == ORDER_TYPE_SELL_STOP ||
+         type == ORDER_TYPE_BUY_STOP_LIMIT ||
+         type == ORDER_TYPE_SELL_STOP_LIMIT
+      )
+      {
+         return true;
+      }
+   }
+
+   return false;
+}
+
+
+bool SelectTrackedPosition()
+{
+   int total =
+      PositionsTotal();
+
+   for(
+      int i = 0;
+      i < total;
+      i++
+   )
+   {
+      ulong ticket =
+         PositionGetTicket(i);
+
+      if(ticket == 0)
+         continue;
+
+      ulong identifier =
+         (ulong)
+         PositionGetInteger(
+            POSITION_IDENTIFIER
+         );
+
+      if(
+         identifier ==
+         g_state.position_id
+      )
+      {
+         return true;
+      }
+   }
+
+   return false;
+}
+
+
+ulong FindEntryDealForPosition(
+   ulong positionIdentifier,
+   datetime fromTime
+)
+{
+   if(
+      !HistorySelect(
+         fromTime - 3600,
+         TimeCurrent() + 60
+      )
+   )
+   {
+      return 0;
+   }
+
+   int deals =
+      HistoryDealsTotal();
+
+   ulong bestDeal = 0;
+   datetime bestTime = 0;
+
+   for(
+      int i = 0;
+      i < deals;
+      i++
+   )
+   {
+      ulong deal =
+         HistoryDealGetTicket(i);
+
+      if(deal == 0)
+         continue;
+
+      ulong posId =
+         (ulong)
+         HistoryDealGetInteger(
+            deal,
+            DEAL_POSITION_ID
+         );
+
+      if(
+         posId !=
+         positionIdentifier
+      )
+      {
+         continue;
+      }
+
+      ENUM_DEAL_ENTRY entryType =
+         (ENUM_DEAL_ENTRY)
+         HistoryDealGetInteger(
+            deal,
+            DEAL_ENTRY
+         );
+
+      if(
+         entryType != DEAL_ENTRY_IN &&
+         entryType != DEAL_ENTRY_INOUT
+      )
+      {
+         continue;
+      }
+
+      datetime dealTime =
+         (datetime)
+         HistoryDealGetInteger(
+            deal,
+            DEAL_TIME
+         );
+
+      if(
+         bestDeal == 0 ||
+         dealTime < bestTime
+      )
+      {
+         bestDeal = deal;
+         bestTime = dealTime;
+      }
+   }
+
+   return bestDeal;
+}
+
+
+bool ActivateFilledPendingPosition()
+{
+   if(!g_pending.active)
+      return false;
+
+   if(
+      !PositionSelect(
+         _Symbol
+      )
+   )
+   {
+      return false;
+   }
+
+   long magic =
+      PositionGetInteger(
+         POSITION_MAGIC
+      );
+
+   if(magic != InpMagicNumber)
+      return false;
+
+   ulong identifier =
+      (ulong)
+      PositionGetInteger(
+         POSITION_IDENTIFIER
+      );
+
+   double fillPrice =
+      PositionGetDouble(
+         POSITION_PRICE_OPEN
+      );
+
+   double volume =
+      PositionGetDouble(
+         POSITION_VOLUME
+      );
+
+   datetime openTime =
+      (datetime)
+      PositionGetInteger(
+         POSITION_TIME
+      );
+
+   string baseSide =
+      StringFind(
+         g_pending.side,
+         "BUY"
+      ) == 0
+      ? "BUY"
+      : "SELL";
+
+   string signalId =
+      g_pending.signal_id;
+
+   double plannedSL =
+      g_pending.sl;
+
+   double plannedTP1 =
+      g_pending.tp1;
+
+   double plannedTP2 =
+      g_pending.tp2;
+
+   double plannedLot =
+      g_pending.lot;
+
+   ulong openDeal =
+      FindEntryDealForPosition(
+         identifier,
+         openTime
+      );
+
+   ResetTrackedState();
+
+   g_state.active =
+      true;
+
+   g_state.signal_id =
+      signalId;
+
+   g_state.position_id =
+      identifier;
+
+   g_state.open_deal_id =
+      openDeal;
+
+   g_state.side =
+      baseSide;
+
+   g_state.entry =
+      fillPrice;
+
+   g_state.sl =
+      plannedSL;
+
+   g_state.tp1 =
+      plannedTP1;
+
+   g_state.tp2 =
+      plannedTP2;
+
+   g_state.initial_lot =
+      plannedLot > 0.0
+      ? plannedLot
+      : volume;
+
+   g_state.lot =
+      volume;
+
+   g_state.initial_risk =
+      MathAbs(
+         fillPrice -
+         plannedSL
+      );
+
+   g_state.open_time =
+      openTime;
+
+   g_state.mfe_price =
+      fillPrice;
+
+   g_state.mae_price =
+      fillPrice;
+
+   g_state.mfe_usd =
+      0.0;
+
+   g_state.mae_usd =
+      0.0;
+
+   g_state.tp1_done =
+      false;
+
+   g_state.open_event_sent =
+      false;
+
+   ResetPendingState();
+
+   SaveTrackedState();
+
+   SendOpenEvent();
+
+   AckSignal(
+      signalId,
+      "executed"
+   );
+
+   Print(
+      "Pending order filled and attached to R2 tracking. Signal=",
+      signalId,
+      " PositionID=",
+      identifier,
+      " Fill=",
+      DoubleToString(
+         fillPrice,
+         _Digits
+      )
+   );
+
+   return true;
+}
+
+
+void CheckPendingTrade()
+{
+   if(!g_pending.active)
+      return;
+
+   // Filled position may appear before the old order disappears.
+   if(ActivateFilledPendingPosition())
+      return;
+
+   bool orderStillLive =
+      OrderSelect(
+         g_pending.order_ticket
+      );
+
+   if(orderStillLive)
+   {
+      long nowMs =
+         (long)
+         TimeGMT() *
+         1000;
+
+      if(
+         g_pending.expires_at_ms > 0 &&
+         nowMs >
+         g_pending.expires_at_ms + 5000
+      )
+      {
+         if(
+            trade.OrderDelete(
+               g_pending.order_ticket
+            )
+         )
+         {
+            AckSignal(
+               g_pending.signal_id,
+               "expired"
+            );
+
+            Print(
+               "Expired pending order removed. Signal=",
+               g_pending.signal_id
+            );
+
+            ClearPendingState();
+         }
+      }
+
+      return;
+   }
+
+   // One more attempt in case the position appeared on the same transaction.
+   if(ActivateFilledPendingPosition())
+      return;
+
+   string finalStatus =
+      "rejected";
+
+   if(
+      HistoryOrderSelect(
+         g_pending.order_ticket
+      )
+   )
+   {
+      ENUM_ORDER_STATE state =
+         (ENUM_ORDER_STATE)
+         HistoryOrderGetInteger(
+            g_pending.order_ticket,
+            ORDER_STATE
+         );
+
+      if(state == ORDER_STATE_EXPIRED)
+         finalStatus = "expired";
+
+      if(state == ORDER_STATE_FILLED)
+      {
+         // History can be visible a fraction before PositionSelect.
+         return;
+      }
+   }
+
+   AckSignal(
+      g_pending.signal_id,
+      finalStatus
+   );
+
+   Print(
+      "Pending order is no longer active. Signal=",
+      g_pending.signal_id,
+      " Status=",
+      finalStatus
+   );
+
+   ClearPendingState();
+}
+
+
+// ============================================================
+// R2 POSITION MANAGEMENT
+// ============================================================
+
+double NormalizeVolumeForSymbol(
+   double volume
+)
+{
+   double minLot =
+      SymbolInfoDouble(
+         _Symbol,
+         SYMBOL_VOLUME_MIN
+      );
+
+   double maxLot =
+      SymbolInfoDouble(
+         _Symbol,
+         SYMBOL_VOLUME_MAX
+      );
+
+   double step =
+      SymbolInfoDouble(
+         _Symbol,
+         SYMBOL_VOLUME_STEP
+      );
+
+   if(step <= 0.0)
+      step = 0.01;
+
+   volume =
+      MathMax(
+         minLot,
+         MathMin(
+            maxLot,
+            volume
+         )
+      );
+
+   volume =
+      MathFloor(
+         (
+            volume +
+            1e-12
+         ) /
+         step
+      ) *
+      step;
+
+   return NormalizeDouble(
+      volume,
+      2
+   );
+}
+
+
+bool ClosePartialTrackedPosition(
+   double requestedVolume
+)
+{
+   if(
+      !g_state.active ||
+      !SelectTrackedPosition()
+   )
+   {
+      return false;
+   }
+
+   ulong positionTicket =
+      (ulong)
+      PositionGetInteger(
+         POSITION_TICKET
+      );
+
+   double currentVolume =
+      PositionGetDouble(
+         POSITION_VOLUME
+      );
+
+   double minLot =
+      SymbolInfoDouble(
+         _Symbol,
+         SYMBOL_VOLUME_MIN
+      );
+
+   double step =
+      SymbolInfoDouble(
+         _Symbol,
+         SYMBOL_VOLUME_STEP
+      );
+
+   if(step <= 0.0)
+      step = 0.01;
+
+   double closeVolume =
+      MathFloor(
+         requestedVolume /
+         step
+      ) *
+      step;
+
+   closeVolume =
+      NormalizeDouble(
+         closeVolume,
+         2
+      );
+
+   double remaining =
+      NormalizeDouble(
+         currentVolume -
+         closeVolume,
+         2
+      );
+
+   // If broker volume granularity cannot support a runner,
+   // close the whole position at TP1 instead of creating invalid volume.
+   if(
+      closeVolume < minLot ||
+      remaining < minLot
+   )
+   {
+      Print(
+         "TP1 partial split is smaller than broker minimum. Closing full position at TP1."
+      );
+
+      return trade.PositionClose(
+         positionTicket
+      );
+   }
+
+   ENUM_ACCOUNT_MARGIN_MODE marginMode =
+      (ENUM_ACCOUNT_MARGIN_MODE)
+      AccountInfoInteger(
+         ACCOUNT_MARGIN_MODE
+      );
+
+   bool success = false;
+
+   if(
+      marginMode ==
+      ACCOUNT_MARGIN_MODE_RETAIL_HEDGING
+   )
+   {
+      success =
+         trade.PositionClosePartial(
+            positionTicket,
+            closeVolume
+         );
+   }
+   else
+   {
+      if(g_state.side == "BUY")
+      {
+         success =
+            trade.Sell(
+               closeVolume,
+               _Symbol,
+               0.0,
+               0.0,
+               0.0,
+               "XAUBridge_TP1"
+            );
+      }
+      else
+      {
+         success =
+            trade.Buy(
+               closeVolume,
+               _Symbol,
+               0.0,
+               0.0,
+               0.0,
+               "XAUBridge_TP1"
+            );
+      }
+   }
+
+   if(!success)
+   {
+      Print(
+         "TP1 partial close failed. Retcode=",
+         trade.ResultRetcode(),
+         " ",
+         trade.ResultRetcodeDescription()
+      );
+   }
+
+   return success;
+}
+
+
+double FindLatestConfirmedM15Structure(
+   string side
+)
+{
+   MqlRates rates[];
+
+   ArraySetAsSeries(
+      rates,
+      true
+   );
+
+   int copied =
+      CopyRates(
+         _Symbol,
+         PERIOD_M15,
+         1,
+         40,
+         rates
+      );
+
+   if(copied < 7)
+      return 0.0;
+
+   for(
+      int i = 2;
+      i <= copied - 3;
+      i++
+   )
+   {
+      if(
+         rates[i].time <=
+         g_state.open_time
+      )
+      {
+         continue;
+      }
+
+      if(side == "BUY")
+      {
+         bool pivotLow =
+            rates[i].low <
+            rates[i - 1].low &&
+            rates[i].low <
+            rates[i - 2].low &&
+            rates[i].low <=
+            rates[i + 1].low &&
+            rates[i].low <=
+            rates[i + 2].low;
+
+         if(pivotLow)
+            return rates[i].low;
+      }
+      else
+      {
+         bool pivotHigh =
+            rates[i].high >
+            rates[i - 1].high &&
+            rates[i].high >
+            rates[i - 2].high &&
+            rates[i].high >=
+            rates[i + 1].high &&
+            rates[i].high >=
+            rates[i + 2].high;
+
+         if(pivotHigh)
+            return rates[i].high;
+      }
+   }
+
+   return 0.0;
+}
+
+
+bool TrailBehindM15Structure()
+{
+   if(
+      !g_state.active ||
+      !SelectTrackedPosition()
+   )
+   {
+      return false;
+   }
+
+   double structure =
+      FindLatestConfirmedM15Structure(
+         g_state.side
+      );
+
+   if(structure <= 0.0)
+      return false;
+
+   MqlTick tick;
+
+   if(
+      !SymbolInfoTick(
+         _Symbol,
+         tick
+      )
+   )
+   {
+      return false;
+   }
+
+   long stopLevelPoints =
+      SymbolInfoInteger(
+         _Symbol,
+         SYMBOL_TRADE_STOPS_LEVEL
+      );
+
+   double brokerDistance =
+      stopLevelPoints *
+      _Point;
+
+   double spreadDistance =
+      MathMax(
+         0.0,
+         tick.ask -
+         tick.bid
+      );
+
+   double buffer =
+      MathMax(
+         brokerDistance,
+         spreadDistance *
+         1.5
+      );
+
+   if(buffer < _Point)
+      buffer = _Point;
+
+   double newSL = 0.0;
+
+   if(g_state.side == "BUY")
+   {
+      newSL =
+         structure -
+         buffer;
+
+      if(
+         newSL <=
+         g_state.sl + _Point ||
+         newSL >=
+         tick.bid - brokerDistance
+      )
+      {
+         return false;
+      }
+   }
+   else
+   {
+      newSL =
+         structure +
+         buffer;
+
+      if(
+         (
+            g_state.sl > 0.0 &&
+            newSL >=
+            g_state.sl - _Point
+         ) ||
+         newSL <=
+         tick.ask + brokerDistance
+      )
+      {
+         return false;
+      }
+   }
+
+   newSL =
+      NormalizeDouble(
+         newSL,
+         _Digits
+      );
+
+   ulong positionTicket =
+      (ulong)
+      PositionGetInteger(
+         POSITION_TICKET
+      );
+
+   double finalTP =
+      g_state.tp2 > 0.0
+      ? g_state.tp2
+      : PositionGetDouble(
+           POSITION_TP
+        );
+
+   if(
+      !trade.PositionModify(
+         positionTicket,
+         newSL,
+         finalTP
+      )
+   )
+   {
+      Print(
+         "R2 structure SL modification failed. Retcode=",
+         trade.ResultRetcode(),
+         " ",
+         trade.ResultRetcodeDescription()
+      );
+
+      return false;
+   }
+
+   g_state.sl =
+      newSL;
+
+   SaveTrackedState();
+
+   Print(
+      "R2 SL moved behind confirmed M15 structure. New SL=",
+      DoubleToString(
+         newSL,
+         _Digits
+      )
+   );
+
+   return true;
+}
+
+
+void ManageR2Trade()
+{
+   if(
+      !InpEnableR2StructureManagement ||
+      !g_state.active ||
+      !SelectTrackedPosition()
+   )
+   {
+      return;
+   }
+
+   MqlTick tick;
+
+   if(
+      !SymbolInfoTick(
+         _Symbol,
+         tick
+      )
+   )
+   {
+      return;
+   }
+
+   double currentPrice =
+      g_state.side == "BUY"
+      ? tick.bid
+      : tick.ask;
+
+   double favorableMove =
+      g_state.side == "BUY"
+      ? currentPrice -
+        g_state.entry
+      : g_state.entry -
+        currentPrice;
+
+   double currentR =
+      g_state.initial_risk > 0.0
+      ? favorableMove /
+        g_state.initial_risk
+      : 0.0;
+
+   bool hitTP1 =
+      g_state.side == "BUY"
+      ? currentPrice >=
+        g_state.tp1
+      : currentPrice <=
+        g_state.tp1;
+
+   if(
+      !g_state.tp1_done &&
+      g_state.tp1 > 0.0 &&
+      hitTP1
+   )
+   {
+      double currentVolume =
+         PositionGetDouble(
+            POSITION_VOLUME
+         );
+
+      double fraction =
+         MathMax(
+            0.0,
+            MathMin(
+               100.0,
+               InpTP1ClosePercent
+            )
+         ) /
+         100.0;
+
+      double requestedClose =
+         currentVolume *
+         fraction;
+
+      if(
+         ClosePartialTrackedPosition(
+            requestedClose
+         )
+      )
+      {
+         // If the full position was closed because broker min lot
+         // prevented a partial runner, CheckTrackedTrade will
+         // complete the CLOSE event on the next timer cycle.
+         if(SelectTrackedPosition())
+         {
+            g_state.lot =
+               PositionGetDouble(
+                  POSITION_VOLUME
+               );
+
+            g_state.tp1_done =
+               true;
+
+            SaveTrackedState();
+
+            Print(
+               "TP1 reached. Partial close completed. Runner volume=",
+               DoubleToString(
+                  g_state.lot,
+                  2
+               )
+            );
+
+            // After TP1, protect the runner only if a confirmed
+            // M15 structure exists. No blind breakeven.
+            TrailBehindM15Structure();
+         }
+
+         return;
+      }
+   }
+
+   // Active management begins around +1R, but only behind
+   // confirmed M15 structure. No fixed trailing and no blind BE.
+   if(
+      currentR >= 1.0 ||
+      g_state.tp1_done
+   )
+   {
+      TrailBehindM15Structure();
+   }
+}
+
+
+// ============================================================
+// TRADE TRANSACTION HOOK
+// ============================================================
+
+void OnTradeTransaction(
+   const MqlTradeTransaction &trans,
+   const MqlTradeRequest &request,
+   const MqlTradeResult &result
+)
+{
+   if(g_pending.active)
+      ActivateFilledPendingPosition();
+
+   if(g_state.active)
+      CheckTrackedTrade();
+}
+
+
+// ============================================================
 // SIGNAL ACK
 // ============================================================
 
@@ -3018,8 +4273,26 @@ void AckSignal(
 
 void SaveTrackedState()
 {
-   if(!g_state.active)
+   if(
+      !g_state.active &&
+      !g_pending.active
+   )
+   {
+      if(
+         FileIsExist(
+            g_stateFile,
+            FILE_COMMON
+         )
+      )
+      {
+         FileDelete(
+            g_stateFile,
+            FILE_COMMON
+         );
+      }
+
       return;
+   }
 
    int handle =
       FileOpen(
@@ -3036,126 +4309,48 @@ void SaveTrackedState()
    )
    {
       Print(
-         "Could not save trade tracking state."
+         "Could not save R2 tracking state."
       );
 
       return;
    }
 
-   FileWrite(
-      handle,
-      g_state.active
-      ? "1"
-      : "0"
-   );
+   FileWrite(handle, "R2V2");
 
-   FileWrite(
-      handle,
-      g_state.signal_id
-   );
+   // Active position state
+   FileWrite(handle, g_state.active ? "1" : "0");
+   FileWrite(handle, g_state.signal_id);
+   FileWrite(handle, IntegerToString((long)g_state.position_id));
+   FileWrite(handle, IntegerToString((long)g_state.open_deal_id));
+   FileWrite(handle, g_state.side);
+   FileWrite(handle, DoubleToString(g_state.entry, _Digits));
+   FileWrite(handle, DoubleToString(g_state.sl, _Digits));
+   FileWrite(handle, DoubleToString(g_state.tp1, _Digits));
+   FileWrite(handle, DoubleToString(g_state.tp2, _Digits));
+   FileWrite(handle, DoubleToString(g_state.initial_lot, 2));
+   FileWrite(handle, DoubleToString(g_state.lot, 2));
+   FileWrite(handle, DoubleToString(g_state.initial_risk, 4));
+   FileWrite(handle, IntegerToString(g_state.open_time));
+   FileWrite(handle, DoubleToString(g_state.mfe_price, _Digits));
+   FileWrite(handle, DoubleToString(g_state.mae_price, _Digits));
+   FileWrite(handle, DoubleToString(g_state.mfe_usd, 4));
+   FileWrite(handle, DoubleToString(g_state.mae_usd, 4));
+   FileWrite(handle, g_state.tp1_done ? "1" : "0");
+   FileWrite(handle, g_state.open_event_sent ? "1" : "0");
 
-   FileWrite(
-      handle,
-      IntegerToString(
-         (long)
-         g_state.position_id
-      )
-   );
+   // Pending state
+   FileWrite(handle, g_pending.active ? "1" : "0");
+   FileWrite(handle, g_pending.signal_id);
+   FileWrite(handle, IntegerToString((long)g_pending.order_ticket));
+   FileWrite(handle, g_pending.side);
+   FileWrite(handle, DoubleToString(g_pending.entry, _Digits));
+   FileWrite(handle, DoubleToString(g_pending.sl, _Digits));
+   FileWrite(handle, DoubleToString(g_pending.tp1, _Digits));
+   FileWrite(handle, DoubleToString(g_pending.tp2, _Digits));
+   FileWrite(handle, DoubleToString(g_pending.lot, 2));
+   FileWrite(handle, IntegerToString(g_pending.expires_at_ms));
 
-   FileWrite(
-      handle,
-      IntegerToString(
-         (long)
-         g_state.open_deal_id
-      )
-   );
-
-   FileWrite(
-      handle,
-      g_state.side
-   );
-
-   FileWrite(
-      handle,
-      DoubleToString(
-         g_state.entry,
-         _Digits
-      )
-   );
-
-   FileWrite(
-      handle,
-      DoubleToString(
-         g_state.sl,
-         _Digits
-      )
-   );
-
-   FileWrite(
-      handle,
-      DoubleToString(
-         g_state.tp,
-         _Digits
-      )
-   );
-
-   FileWrite(
-      handle,
-      DoubleToString(
-         g_state.lot,
-         2
-      )
-   );
-
-   FileWrite(
-      handle,
-      IntegerToString(
-         g_state.open_time
-      )
-   );
-
-   FileWrite(
-      handle,
-      DoubleToString(
-         g_state.mfe_price,
-         _Digits
-      )
-   );
-
-   FileWrite(
-      handle,
-      DoubleToString(
-         g_state.mae_price,
-         _Digits
-      )
-   );
-
-   FileWrite(
-      handle,
-      DoubleToString(
-         g_state.mfe_usd,
-         4
-      )
-   );
-
-   FileWrite(
-      handle,
-      DoubleToString(
-         g_state.mae_usd,
-         4
-      )
-   );
-
-   FileWrite(
-      handle,
-      g_state.open_event_sent
-      ? "1"
-      : "0"
-   );
-
-   FileClose(
-      handle
-   );
+   FileClose(handle);
 }
 
 
@@ -3193,177 +4388,208 @@ bool LoadTrackedState()
    }
 
    ResetTrackedState();
+   ResetPendingState();
 
-   if(
-      FileIsEnding(
-         handle
-      )
-   )
+   if(FileIsEnding(handle))
    {
-      FileClose(
-         handle
+      FileClose(handle);
+      return false;
+   }
+
+   string version =
+      FileReadString(handle);
+
+   if(version != "R2V2")
+   {
+      FileClose(handle);
+
+      Print(
+         "Ignoring incompatible old EA state file."
       );
 
       return false;
    }
 
    g_state.active =
-      (
-         FileReadString(
-            handle
-         ) ==
-         "1"
-      );
+      FileReadString(handle) == "1";
 
    g_state.signal_id =
-      FileReadString(
-         handle
-      );
+      FileReadString(handle);
 
    g_state.position_id =
       (ulong)
       StringToInteger(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
 
    g_state.open_deal_id =
       (ulong)
       StringToInteger(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
 
    g_state.side =
-      FileReadString(
-         handle
-      );
+      FileReadString(handle);
 
    g_state.entry =
       StringToDouble(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
 
    g_state.sl =
       StringToDouble(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
 
-   g_state.tp =
+   g_state.tp1 =
       StringToDouble(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
+      );
+
+   g_state.tp2 =
+      StringToDouble(
+         FileReadString(handle)
+      );
+
+   g_state.initial_lot =
+      StringToDouble(
+         FileReadString(handle)
       );
 
    g_state.lot =
       StringToDouble(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
+      );
+
+   g_state.initial_risk =
+      StringToDouble(
+         FileReadString(handle)
       );
 
    g_state.open_time =
       (datetime)
       StringToInteger(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
 
    g_state.mfe_price =
       StringToDouble(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
 
    g_state.mae_price =
       StringToDouble(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
 
    g_state.mfe_usd =
       StringToDouble(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
 
    g_state.mae_usd =
       StringToDouble(
-         FileReadString(
-            handle
-         )
+         FileReadString(handle)
       );
+
+   g_state.tp1_done =
+      FileReadString(handle) == "1";
 
    g_state.open_event_sent =
-      (
-         FileReadString(
-            handle
-         ) ==
-         "1"
+      FileReadString(handle) == "1";
+
+   g_pending.active =
+      FileReadString(handle) == "1";
+
+   g_pending.signal_id =
+      FileReadString(handle);
+
+   g_pending.order_ticket =
+      (ulong)
+      StringToInteger(
+         FileReadString(handle)
       );
 
-   FileClose(
-      handle
-   );
+   g_pending.side =
+      FileReadString(handle);
 
-   if(
-      g_state.active &&
-      g_state.signal_id != ""
-   )
+   g_pending.entry =
+      StringToDouble(
+         FileReadString(handle)
+      );
+
+   g_pending.sl =
+      StringToDouble(
+         FileReadString(handle)
+      );
+
+   g_pending.tp1 =
+      StringToDouble(
+         FileReadString(handle)
+      );
+
+   g_pending.tp2 =
+      StringToDouble(
+         FileReadString(handle)
+      );
+
+   g_pending.lot =
+      StringToDouble(
+         FileReadString(handle)
+      );
+
+   g_pending.expires_at_ms =
+      (long)
+      StringToInteger(
+         FileReadString(handle)
+      );
+
+   FileClose(handle);
+
+   if(g_state.active)
    {
       Print(
-         "Recovered tracked trade. Signal=",
+         "Recovered R2 position. Signal=",
          g_state.signal_id,
          " PositionID=",
          g_state.position_id
       );
-
-      return true;
    }
 
-   ResetTrackedState();
+   if(g_pending.active)
+   {
+      Print(
+         "Recovered R2 pending order. Signal=",
+         g_pending.signal_id,
+         " Order=",
+         g_pending.order_ticket
+      );
+   }
 
-   return false;
+   return(
+      g_state.active ||
+      g_pending.active
+   );
 }
 
 
 // ============================================================
-// CLEAR STATE
+// CLEAR / RESET STATE
 // ============================================================
 
 void ClearTrackedState()
 {
    ResetTrackedState();
-
-   if(
-      FileIsExist(
-         g_stateFile,
-         FILE_COMMON
-      )
-   )
-   {
-      FileDelete(
-         g_stateFile,
-         FILE_COMMON
-      );
-   }
+   SaveTrackedState();
 }
 
 
-// ============================================================
-// RESET STATE
-// ============================================================
+void ClearPendingState()
+{
+   ResetPendingState();
+   SaveTrackedState();
+}
+
 
 void ResetTrackedState()
 {
@@ -3388,10 +4614,19 @@ void ResetTrackedState()
    g_state.sl =
       0.0;
 
-   g_state.tp =
+   g_state.tp1 =
+      0.0;
+
+   g_state.tp2 =
+      0.0;
+
+   g_state.initial_lot =
       0.0;
 
    g_state.lot =
+      0.0;
+
+   g_state.initial_risk =
       0.0;
 
    g_state.open_time =
@@ -3409,8 +4644,45 @@ void ResetTrackedState()
    g_state.mae_usd =
       0.0;
 
+   g_state.tp1_done =
+      false;
+
    g_state.open_event_sent =
       false;
+}
+
+
+void ResetPendingState()
+{
+   g_pending.active =
+      false;
+
+   g_pending.signal_id =
+      "";
+
+   g_pending.order_ticket =
+      0;
+
+   g_pending.side =
+      "";
+
+   g_pending.entry =
+      0.0;
+
+   g_pending.sl =
+      0.0;
+
+   g_pending.tp1 =
+      0.0;
+
+   g_pending.tp2 =
+      0.0;
+
+   g_pending.lot =
+      0.0;
+
+   g_pending.expires_at_ms =
+      0;
 }
 
 
@@ -3782,6 +5054,4 @@ string JsonEscape(
    );
 
    return value;
-}
-}
 }
