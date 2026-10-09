@@ -28,7 +28,7 @@ input long   InpMagicNumber                 = 2601001;
 input int    InpEvaluateEverySeconds        = 10;
 input int    InpMaxDeviationPoints          = 50;
 input int    InpMinimumR2Score              = 70;
-input double InpSafetyMaxLot                = 1.00;
+input double InpSafetyMaxLot                = 0.03;
 
 // Base lot rule:
 // each $300 of account balance = 0.01 lot.
