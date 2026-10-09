@@ -1,8 +1,10 @@
 const RULES_VERSION = "R1";
 const R2_RULES_VERSION = "R2_SWING_V1";
-const BUILD_VERSION = "R1_WATCH_ZONES_R2_SWING_V2_2_ZONE_INVALIDATION";
+const BUILD_VERSION = "R1_WATCH_ZONES_R2_SWING_V2_3_SINGLE_TRIGGER";
 const R2_AUTO_SIGNAL_ENABLED = true;
 const R2_AUTO_MIN_SCORE = 70;
+const R2_TRIGGER_MIN_SCORE = 75;
+const R2_TRIGGER_MIN_RR = 1.20;
 const R2_AUTO_MARKET_TTL_SECONDS = 120;
 const R2_AUTO_MAX_PENDING_TTL_SECONDS = 43200;
 
@@ -34,7 +36,10 @@ export default {
         r2_rejection_audit: true,
         r2_audit_feed: "ZONES_LATEST",
         zone_invalidation: true,
-        zone_invalidation_mode: "STRUCTURAL_CLOSE_BEYOND_LEVEL"
+        zone_invalidation_mode: "STRUCTURAL_CLOSE_BEYOND_LEVEL",
+        r2_manual_trigger_mode: "GOOD_ZONE_PLUS_ONE_CONFIRMATION",
+        r2_trigger_min_score: R2_TRIGGER_MIN_SCORE,
+        r2_trigger_min_rr: R2_TRIGGER_MIN_RR
       });
     }
 
@@ -2433,6 +2438,9 @@ async function handleLatestZones(
         r2_score: 0,
         r2_allowed: 0,
         r2_rr_tp1: 0,
+        r2_trigger_ready: 0,
+        r2_trigger: "NONE",
+        r2_trigger_count: 0,
         r2_reason: "STALE_MARKET"
       });
     }
@@ -2457,6 +2465,9 @@ async function handleLatestZones(
       r2_score: r2Audit.score,
       r2_allowed: r2Audit.allowed ? 1 : 0,
       r2_rr_tp1: r2Audit.rr_tp1,
+      r2_trigger_ready: r2Audit.trigger_ready ? 1 : 0,
+      r2_trigger: r2Audit.trigger,
+      r2_trigger_count: r2Audit.trigger_count,
       r2_reason: r2Audit.reason
     });
   } catch (error) {
@@ -2465,8 +2476,84 @@ async function handleLatestZones(
 }
 
 
+function r2SingleConfirmation(result, setup) {
+  const side = String(setup?.side || "").toUpperCase();
+  const buy = side === "BUY";
+  const sell = side === "SELL";
+  const m1 = result?.metrics?.m1 || {};
+  const m5 = result?.metrics?.m5 || {};
+
+  if (!buy && !sell) {
+    return {
+      confirmed: false,
+      trigger: "NONE",
+      count: 0,
+      confirmations: []
+    };
+  }
+
+  const confirmations = [];
+
+  const m1Rejection = buy
+    ? (
+        Number(m1.close_position) >= 0.65 &&
+        Number(m1.close) > Number(m1.previous_close)
+      )
+    : (
+        Number(m1.close_position) <= 0.35 &&
+        Number(m1.close) < Number(m1.previous_close)
+      );
+
+  if (m1Rejection) {
+    confirmations.push("M1_REJECTION");
+  }
+
+  const m1MomentumShift = buy
+    ? (
+        Number(m1.close) >= Number(m1.ema9) &&
+        Number(m1.rsi14) >= 50
+      )
+    : (
+        Number(m1.close) <= Number(m1.ema9) &&
+        Number(m1.rsi14) <= 50
+      );
+
+  if (m1MomentumShift) {
+    confirmations.push("M1_MOMENTUM_SHIFT");
+  }
+
+  const m5Behavior = buy
+    ? (
+        Number(m5.close) >= Number(m5.ema20) &&
+        Number(m5.close_position) >= 0.55
+      )
+    : (
+        Number(m5.close) <= Number(m5.ema20) &&
+        Number(m5.close_position) <= 0.45
+      );
+
+  if (m5Behavior) {
+    confirmations.push("M5_DIRECTIONAL_CLOSE");
+  }
+
+  return {
+    confirmed: confirmations.length >= 1,
+    trigger: confirmations[0] || "NONE",
+    count: confirmations.length,
+    confirmations
+  };
+}
+
+
 function buildR2AuditSnapshot(result, r1Zones) {
   const setup = result?.setup || {};
+
+  const clean = value =>
+    String(value ?? "")
+      .replaceAll('"', "'")
+      .replace(/\s+/g, " ")
+      .trim();
+
   const strategy = String(
     setup.strategy ||
     result?.selector?.selected_strategy ||
@@ -2478,6 +2565,8 @@ function buildR2AuditSnapshot(result, r1Zones) {
     result?.selector?.selected_order_type ||
     "NONE"
   ).toUpperCase();
+
+  const side = String(setup.side || "").toUpperCase();
 
   const scoreRaw = Number(
     setup.setup_score ??
@@ -2496,47 +2585,75 @@ function buildR2AuditSnapshot(result, r1Zones) {
       ? roundNumber(rrRaw, 3)
       : 0;
 
+  // Preserve the original strict R2 "allowed" flag for the auto-signal
+  // engine. The lighter READY trigger below is for zone monitoring/manual
+  // decision support only.
   const setupAllowed = !!setup.allowed;
-  let status = setupAllowed ? "READY" : "WATCH";
-  let reason = "NO_ALLOWED_R2_SETUP";
 
-  const clean = value =>
-    String(value ?? "")
-      .replaceAll('"', "'")
-      .replace(/\s+/g, " ")
-      .trim();
+  let status = "WATCH";
+  let reason = "NO_R2_CANDIDATE";
 
-  if (!setupAllowed) {
-    if (result?.high_volatility) {
-      reason = "HIGH_VOLATILITY_R2_NOT_CONFIRMED";
-    }
-    else if (score < R2_AUTO_MIN_SCORE) {
-      reason = "R2_SCORE_BELOW_AUTO_THRESHOLD";
-    }
-    else if (Array.isArray(setup.notes) && setup.notes.length) {
-      reason = clean(setup.notes.join(" | "));
-    }
-  }
-  else {
-    const zoneGate = r2AutoZoneGate(
-      setup,
-      r1Zones,
-      result
+  const confirmation =
+    r2SingleConfirmation(
+      result,
+      setup
     );
 
-    if (!zoneGate.allowed) {
-      status = "WATCH";
-      reason = clean(zoneGate.reason || "R1_ZONE_GATE_NOT_READY");
-    }
-    else {
-      const placement = r2PendingPlacementCheck(
-        orderType,
-        Number(setup.entry),
-        result?.market || {}
+  const hasCandidate =
+    strategy !== "NONE" &&
+    ["BUY", "SELL"].includes(side) &&
+    Number.isFinite(Number(setup.entry)) &&
+    Number.isFinite(Number(setup.sl)) &&
+    Number.isFinite(Number(setup.tp1));
+
+  let zoneGate = {
+    allowed: false,
+    reason: "NO_RELEVANT_R1_ZONE"
+  };
+
+  let placement = {
+    allowed: false,
+    reason: "ORDER_PLACEMENT_RELATION_NOT_READY"
+  };
+
+  if (!hasCandidate) {
+    reason = "NO_R2_CANDIDATE";
+  }
+  else if (score < R2_TRIGGER_MIN_SCORE) {
+    reason = "WAIT_SCORE_BELOW_" + R2_TRIGGER_MIN_SCORE;
+  }
+  else if (rrTp1 < R2_TRIGGER_MIN_RR) {
+    reason = "WAIT_RR_BELOW_" + String(R2_TRIGGER_MIN_RR).replace(".", "_");
+  }
+  else {
+    // Location is the only hard market-context gate:
+    // price/entry must be inside or sufficiently near the relevant R1 zone.
+    zoneGate =
+      r2AutoZoneGate(
+        setup,
+        r1Zones,
+        result
       );
 
+    if (!zoneGate.allowed) {
+      reason = clean(
+        zoneGate.reason ||
+        "WAIT_FOR_GOOD_ZONE"
+      );
+    }
+    else if (!confirmation.confirmed) {
+      // Once the location is good, ONE confirmation is enough.
+      reason = "WAIT_ONE_CONFIRMATION";
+    }
+    else {
+      placement =
+        r2PendingPlacementCheck(
+          orderType,
+          Number(setup.entry),
+          result?.market || {}
+        );
+
       if (!placement.allowed) {
-        status = "WATCH";
         reason = clean(
           placement.reason ||
           "ORDER_PLACEMENT_RELATION_NOT_READY"
@@ -2544,7 +2661,9 @@ function buildR2AuditSnapshot(result, r1Zones) {
       }
       else {
         status = "READY";
-        reason = "R2_SETUP_READY_FOR_AUTO_SIGNAL";
+        reason =
+          "READY_" +
+          confirmation.trigger;
       }
     }
   }
@@ -2557,10 +2676,13 @@ function buildR2AuditSnapshot(result, r1Zones) {
     score,
     allowed: setupAllowed,
     rr_tp1: rrTp1,
+    trigger_ready: status === "READY",
+    trigger: confirmation.trigger,
+    trigger_count: confirmation.count,
+    confirmations: confirmation.confirmations,
     reason: clean(reason)
   };
 }
-
 
 function calculateAutoDecisionZonesR1(regimeData) {
   const { regime, strategy, metrics } = regimeData;
