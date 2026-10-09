@@ -1,6 +1,6 @@
 const RULES_VERSION = "R1";
 const R2_RULES_VERSION = "R2_SWING_V1";
-const BUILD_VERSION = "R1_WATCH_ZONES_R2_SWING_V2_3_SINGLE_TRIGGER";
+const BUILD_VERSION = "R1_WATCH_ZONES_R2_SWING_V2_4_SIDE_CONFIRMATIONS";
 const R2_AUTO_SIGNAL_ENABLED = true;
 const R2_AUTO_MIN_SCORE = 70;
 const R2_TRIGGER_MIN_SCORE = 75;
@@ -39,7 +39,11 @@ export default {
         zone_invalidation_mode: "STRUCTURAL_CLOSE_BEYOND_LEVEL",
         r2_manual_trigger_mode: "GOOD_ZONE_PLUS_ONE_CONFIRMATION",
         r2_trigger_min_score: R2_TRIGGER_MIN_SCORE,
-        r2_trigger_min_rr: R2_TRIGGER_MIN_RR
+        r2_trigger_min_rr: R2_TRIGGER_MIN_RR,
+        zone_confirmation_feed: "BUY_AND_SELL",
+        countertrend_strong_r2_threshold: 85,
+        countertrend_required_confirmations: 2,
+        aligned_required_confirmations: 1
       });
     }
 
@@ -2441,6 +2445,12 @@ async function handleLatestZones(
         r2_trigger_ready: 0,
         r2_trigger: "NONE",
         r2_trigger_count: 0,
+        buy_trigger_count: 0,
+        buy_trigger_1: "NONE",
+        buy_trigger_2: "NONE",
+        sell_trigger_count: 0,
+        sell_trigger_1: "NONE",
+        sell_trigger_2: "NONE",
         r2_reason: "STALE_MARKET"
       });
     }
@@ -2448,6 +2458,8 @@ async function handleLatestZones(
     const zones = calculateAutoDecisionZonesR1(regimeData);
     const r2Result = await calculateR2Swing(env);
     const r2Audit = buildR2AuditSnapshot(r2Result, zones);
+    const buyConfirmations = r2ConfirmationsForSide(r2Result, "BUY");
+    const sellConfirmations = r2ConfirmationsForSide(r2Result, "SELL");
 
     return json({
       ok: true,
@@ -2468,6 +2480,17 @@ async function handleLatestZones(
       r2_trigger_ready: r2Audit.trigger_ready ? 1 : 0,
       r2_trigger: r2Audit.trigger,
       r2_trigger_count: r2Audit.trigger_count,
+
+      // Directional confirmation feed for the chart zone engine.
+      // A counter-trend zone may require two confirmations even when
+      // the active R2 setup points the other way.
+      buy_trigger_count: buyConfirmations.count,
+      buy_trigger_1: buyConfirmations.confirmations[0] || "NONE",
+      buy_trigger_2: buyConfirmations.confirmations[1] || "NONE",
+      sell_trigger_count: sellConfirmations.count,
+      sell_trigger_1: sellConfirmations.confirmations[0] || "NONE",
+      sell_trigger_2: sellConfirmations.confirmations[1] || "NONE",
+
       r2_reason: r2Audit.reason
     });
   } catch (error) {
@@ -2476,8 +2499,8 @@ async function handleLatestZones(
 }
 
 
-function r2SingleConfirmation(result, setup) {
-  const side = String(setup?.side || "").toUpperCase();
+function r2ConfirmationsForSide(result, requestedSide) {
+  const side = String(requestedSide || "").toUpperCase();
   const buy = side === "BUY";
   const sell = side === "SELL";
   const m1 = result?.metrics?.m1 || {};
@@ -2594,9 +2617,9 @@ function buildR2AuditSnapshot(result, r1Zones) {
   let reason = "NO_R2_CANDIDATE";
 
   const confirmation =
-    r2SingleConfirmation(
+    r2ConfirmationsForSide(
       result,
-      setup
+      setup.side
     );
 
   const hasCandidate =
