@@ -289,7 +289,7 @@ bool InMinuteWindow(int nowMin, int startMin, int endMin)
    return nowMin >= startMin || nowMin < endMin;
 }
 
-double CandleClosePosition(MqlRates bar)
+double CandleClosePosition(MqlRates &bar)
 {
    double range = bar.high - bar.low;
 
