@@ -581,8 +581,8 @@ SetupState EvaluateSetup()
 
    g_locationPass++;
 
-   MqlRates &b = m5[0];
-   MqlRates &prev = m5[1];
+   MqlRates b = m5[0];
+   MqlRates prev = m5[1];
 
    double body = MathAbs(b.close - b.open);
    double lowerWick = MathMin(b.open, b.close) - b.low;
