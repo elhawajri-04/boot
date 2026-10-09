@@ -1,6 +1,6 @@
 const RULES_VERSION = "R1";
 const R2_RULES_VERSION = "R2_SWING_V1";
-const BUILD_VERSION = "R1_WATCH_ZONES_R2_SWING_V2_1_AUTO_SIGNAL_R2_AUDIT";
+const BUILD_VERSION = "R1_WATCH_ZONES_R2_SWING_V2_2_ZONE_INVALIDATION";
 const R2_AUTO_SIGNAL_ENABLED = true;
 const R2_AUTO_MIN_SCORE = 70;
 const R2_AUTO_MARKET_TTL_SECONDS = 120;
@@ -32,7 +32,9 @@ export default {
         r2_auto_signal: R2_AUTO_SIGNAL_ENABLED,
         r2_auto_signal_mode: "ZONE_GATED_SETUP_TO_SIGNAL",
         r2_rejection_audit: true,
-        r2_audit_feed: "ZONES_LATEST"
+        r2_audit_feed: "ZONES_LATEST",
+        zone_invalidation: true,
+        zone_invalidation_mode: "STRUCTURAL_CLOSE_BEYOND_LEVEL"
       });
     }
 
@@ -2568,6 +2570,16 @@ function calculateAutoDecisionZonesR1(regimeData) {
   let buyHigh = null;
   let sellLow = null;
   let sellHigh = null;
+
+  let buyInvalidation = null;
+  let sellInvalidation = null;
+  let buyInvalidationTf = null;
+  let sellInvalidationTf = null;
+  let buyInvalidationRule = null;
+  let sellInvalidationRule = null;
+  let buyInvalidationReason = null;
+  let sellInvalidationReason = null;
+
   let watchOnly = false;
   let zoneType = "AUTO_R1";
   let watchReason = null;
@@ -2581,6 +2593,22 @@ function calculateAutoDecisionZonesR1(regimeData) {
     sellHigh = roundNumber(Math.max(a, b), 2);
   };
 
+  const setBuyInvalidation = (value, timeframe, reason) => {
+    if (!Number.isFinite(Number(value))) return;
+    buyInvalidation = roundNumber(Number(value), 2);
+    buyInvalidationTf = timeframe;
+    buyInvalidationRule = timeframe + "_CLOSE_BELOW";
+    buyInvalidationReason = reason;
+  };
+
+  const setSellInvalidation = (value, timeframe, reason) => {
+    if (!Number.isFinite(Number(value))) return;
+    sellInvalidation = roundNumber(Number(value), 2);
+    sellInvalidationTf = timeframe;
+    sellInvalidationRule = timeframe + "_CLOSE_ABOVE";
+    sellInvalidationReason = reason;
+  };
+
   if (regime === "HIGH_VOLATILITY" || strategy === "NO_TRADE") {
     watchOnly = true;
     zoneType = "WATCH_HIGH_VOLATILITY";
@@ -2592,12 +2620,45 @@ function calculateAutoDecisionZonesR1(regimeData) {
     if (bearishImpulse) {
       setSell(m1.ema9 - 0.35 * m1.atr14, m1.ema9 + 0.35 * m1.atr14);
       setBuy(m1.low20, m1.low20 + 0.60 * m1.atr14);
+
+      setSellInvalidation(
+        Math.max(m1.high20, m1.ema9 + 0.75 * m1.atr14),
+        "M1",
+        "M1 close above recent impulse high invalidates the sell reaction zone."
+      );
+      setBuyInvalidation(
+        m1.low20 - 0.25 * m1.atr14,
+        "M1",
+        "M1 close below the recent 20-bar low invalidates the buy reaction zone."
+      );
     } else if (bullishImpulse) {
       setBuy(m1.ema9 - 0.35 * m1.atr14, m1.ema9 + 0.35 * m1.atr14);
       setSell(m1.high20 - 0.60 * m1.atr14, m1.high20);
+
+      setBuyInvalidation(
+        Math.min(m1.low20, m1.ema9 - 0.75 * m1.atr14),
+        "M1",
+        "M1 close below recent impulse low invalidates the buy reaction zone."
+      );
+      setSellInvalidation(
+        m1.high20 + 0.25 * m1.atr14,
+        "M1",
+        "M1 close above the recent 20-bar high invalidates the sell reaction zone."
+      );
     } else {
       setBuy(m1.low20, m1.low20 + 0.50 * m1.atr14);
       setSell(m1.high20 - 0.50 * m1.atr14, m1.high20);
+
+      setBuyInvalidation(
+        m1.low20 - 0.25 * m1.atr14,
+        "M1",
+        "M1 close below the recent 20-bar low invalidates the buy watch zone."
+      );
+      setSellInvalidation(
+        m1.high20 + 0.25 * m1.atr14,
+        "M1",
+        "M1 close above the recent 20-bar high invalidates the sell watch zone."
+      );
     }
   }
   else if (regime === "TRANSITION" || strategy === "NONE") {
@@ -2606,27 +2667,73 @@ function calculateAutoDecisionZonesR1(regimeData) {
     watchReason = "Observation only. R1 has no tradable strategy yet.";
     setBuy(m5.low20, m5.low20 + 0.35 * m5.atr14);
     setSell(m5.high20 - 0.35 * m5.atr14, m5.high20);
+
+    setBuyInvalidation(
+      m5.low20 - 0.25 * m5.atr14,
+      "M5",
+      "M5 close below the 20-bar structural low invalidates the buy watch zone."
+    );
+    setSellInvalidation(
+      m5.high20 + 0.25 * m5.atr14,
+      "M5",
+      "M5 close above the 20-bar structural high invalidates the sell watch zone."
+    );
   }
   else if (strategy === "TREND_PULLBACK_BUY") {
     const ref = Math.abs(regimeData.market.ask - m5.ema20) <= Math.abs(regimeData.market.ask - m5.ema50) ? m5.ema20 : m5.ema50;
     setBuy(ref - 0.45 * m5.atr14, ref + 0.45 * m5.atr14);
+
+    setBuyInvalidation(
+      Math.min(m5.low20, m30.low20) - 0.20 * m5.atr14,
+      "M5",
+      "M5 close below the protected pullback structure invalidates the trend-buy zone."
+    );
   }
   else if (strategy === "TREND_PULLBACK_SELL") {
     const ref = Math.abs(regimeData.market.bid - m5.ema20) <= Math.abs(regimeData.market.bid - m5.ema50) ? m5.ema20 : m5.ema50;
     setSell(ref - 0.45 * m5.atr14, ref + 0.45 * m5.atr14);
+
+    setSellInvalidation(
+      Math.max(m5.high20, m30.high20) + 0.20 * m5.atr14,
+      "M5",
+      "M5 close above the protected pullback structure invalidates the trend-sell zone."
+    );
   }
   else if (strategy === "BREAKOUT_RETEST_BUY") {
     const level = m5.previous_high20;
     setBuy(level - 0.15 * m5.atr14, level + 0.45 * m5.atr14);
+
+    setBuyInvalidation(
+      Math.min(m5.low20, level - 0.45 * m5.atr14),
+      "M5",
+      "M5 close below the broken level and retest structure invalidates the breakout-buy zone."
+    );
   }
   else if (strategy === "BREAKOUT_RETEST_SELL") {
     const level = m5.previous_low20;
     setSell(level - 0.45 * m5.atr14, level + 0.15 * m5.atr14);
+
+    setSellInvalidation(
+      Math.max(m5.high20, level + 0.45 * m5.atr14),
+      "M5",
+      "M5 close above the broken level and retest structure invalidates the breakout-sell zone."
+    );
   }
   else if (strategy === "RANGE_REVERSION") {
     const width = m30.high20 - m30.low20;
     setBuy(m30.low20, m30.low20 + 0.20 * width);
     setSell(m30.high20 - 0.20 * width, m30.high20);
+
+    setBuyInvalidation(
+      m30.low20 - 0.25 * m5.atr14,
+      "M5",
+      "M5 close below the M30 range floor invalidates the range-buy zone."
+    );
+    setSellInvalidation(
+      m30.high20 + 0.25 * m5.atr14,
+      "M5",
+      "M5 close above the M30 range ceiling invalidates the range-sell zone."
+    );
   }
 
   return {
@@ -2638,8 +2745,16 @@ function calculateAutoDecisionZonesR1(regimeData) {
     watch_reason: watchReason,
     buy_low: buyLow,
     buy_high: buyHigh,
+    buy_invalidation: buyInvalidation,
+    buy_invalidation_tf: buyInvalidationTf,
+    buy_invalidation_rule: buyInvalidationRule,
+    buy_invalidation_reason: buyInvalidationReason,
     sell_low: sellLow,
-    sell_high: sellHigh
+    sell_high: sellHigh,
+    sell_invalidation: sellInvalidation,
+    sell_invalidation_tf: sellInvalidationTf,
+    sell_invalidation_rule: sellInvalidationRule,
+    sell_invalidation_reason: sellInvalidationReason
   };
 }
 
