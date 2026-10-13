@@ -536,6 +536,78 @@ void SyncPersistentZonesToGlobals()
    }
 }
 
+string ZoneAnalysisIdForSide(bool buy)
+{
+   if(InpLockZoneIdentity)
+   {
+      if(buy && g_pBuyZone.active)
+         return g_pBuyZone.source_analysis_id;
+
+      if(!buy && g_pSellZone.active)
+         return g_pSellZone.source_analysis_id;
+   }
+
+   return g_zoneAnalysisId;
+}
+
+string ZoneTypeForSide(bool buy)
+{
+   if(InpLockZoneIdentity)
+   {
+      if(buy && g_pBuyZone.active)
+         return g_pBuyZone.zone_type;
+
+      if(!buy && g_pSellZone.active)
+         return g_pSellZone.zone_type;
+   }
+
+   return g_zoneType;
+}
+
+string ZoneWatchReasonForSide(bool buy)
+{
+   if(InpLockZoneIdentity)
+   {
+      if(buy && g_pBuyZone.active)
+         return g_pBuyZone.watch_reason;
+
+      if(!buy && g_pSellZone.active)
+         return g_pSellZone.watch_reason;
+   }
+
+   return g_zoneWatchReason;
+}
+
+bool RawZoneAlreadyInvalidated(
+   string side,
+   double invalidation,
+   string invalidationTf
+)
+{
+   if(invalidation <= 0.0)
+      return false;
+
+   string tf =
+      invalidationTf == ""
+      ? "M5"
+      : invalidationTf;
+
+   double closedPrice =
+      LastClosedZoneTFPrice(tf);
+
+   if(closedPrice <= 0.0)
+      return false;
+
+   if(side == "BUY")
+      return closedPrice < invalidation;
+
+   if(side == "SELL")
+      return closedPrice > invalidation;
+
+   return false;
+}
+
+
 void AdoptPersistentZone(
    PersistentZoneState &z,
    string side,
@@ -552,6 +624,26 @@ void AdoptPersistentZone(
 {
    if(z.active || !ValidZone(low, high))
       return;
+
+   if(
+      RawZoneAlreadyInvalidated(
+         side,
+         invalidation,
+         invalidationTf
+      )
+   )
+   {
+      Print(
+         "ZONE LIFECYCLE | SKIP STALE ",
+         side,
+         " | raw Worker zone is already structurally invalidated | ",
+         DoubleToString(low, _Digits),
+         "-",
+         DoubleToString(high, _Digits)
+      );
+
+      return;
+   }
 
    datetime now = TimeCurrent();
 
@@ -938,25 +1030,28 @@ int BaseZoneStrengthScore(bool buy)
       ))
       return 0;
 
-   if(StringFind(g_zoneAnalysisId, "BREAKOUT_RETEST_BUY") >= 0)
+   string analysisId = ZoneAnalysisIdForSide(buy);
+   string zoneType = ZoneTypeForSide(buy);
+
+   if(StringFind(analysisId, "BREAKOUT_RETEST_BUY") >= 0)
       return buy ? 86 : 68;
 
-   if(StringFind(g_zoneAnalysisId, "BREAKOUT_RETEST_SELL") >= 0)
+   if(StringFind(analysisId, "BREAKOUT_RETEST_SELL") >= 0)
       return buy ? 68 : 86;
 
-   if(StringFind(g_zoneAnalysisId, "TREND_PULLBACK_BUY") >= 0)
+   if(StringFind(analysisId, "TREND_PULLBACK_BUY") >= 0)
       return buy ? 82 : 68;
 
-   if(StringFind(g_zoneAnalysisId, "TREND_PULLBACK_SELL") >= 0)
+   if(StringFind(analysisId, "TREND_PULLBACK_SELL") >= 0)
       return buy ? 68 : 82;
 
-   if(StringFind(g_zoneAnalysisId, "RANGE_REVERSION") >= 0)
+   if(StringFind(analysisId, "RANGE_REVERSION") >= 0)
       return 76;
 
-   if(g_zoneType == "WATCH_HIGH_VOLATILITY")
+   if(zoneType == "WATCH_HIGH_VOLATILITY")
       return 72;
 
-   if(g_zoneType == "WATCH_TRANSITION")
+   if(zoneType == "WATCH_TRANSITION")
       return 70;
 
    return 72;
@@ -1114,49 +1209,52 @@ string ZoneBias(bool buy)
 
 string BaseZoneReason(bool buy)
 {
-   if(StringFind(g_zoneAnalysisId, "BREAKOUT_RETEST_BUY") >= 0)
+   string analysisId = ZoneAnalysisIdForSide(buy);
+   string zoneType = ZoneTypeForSide(buy);
+
+   if(StringFind(analysisId, "BREAKOUT_RETEST_BUY") >= 0)
    {
       return buy
          ? "M5 previous 20-bar high breakout retest + ATR buffer"
          : "Opposite-side reaction area";
    }
 
-   if(StringFind(g_zoneAnalysisId, "BREAKOUT_RETEST_SELL") >= 0)
+   if(StringFind(analysisId, "BREAKOUT_RETEST_SELL") >= 0)
    {
       return buy
          ? "Opposite-side reaction area"
          : "M5 previous 20-bar low breakout retest + ATR buffer";
    }
 
-   if(StringFind(g_zoneAnalysisId, "TREND_PULLBACK_BUY") >= 0)
+   if(StringFind(analysisId, "TREND_PULLBACK_BUY") >= 0)
    {
       return buy
          ? "R1 uptrend value near M5 EMA20/EMA50 + ATR pullback band"
          : "Opposite-side reaction area";
    }
 
-   if(StringFind(g_zoneAnalysisId, "TREND_PULLBACK_SELL") >= 0)
+   if(StringFind(analysisId, "TREND_PULLBACK_SELL") >= 0)
    {
       return buy
          ? "Opposite-side reaction area"
          : "R1 downtrend value near M5 EMA20/EMA50 + ATR pullback band";
    }
 
-   if(StringFind(g_zoneAnalysisId, "RANGE_REVERSION") >= 0)
+   if(StringFind(analysisId, "RANGE_REVERSION") >= 0)
    {
       return buy
          ? "M30 range lower edge, outer 20% mean-reversion zone"
          : "M30 range upper edge, outer 20% mean-reversion zone";
    }
 
-   if(g_zoneType == "WATCH_HIGH_VOLATILITY")
+   if(zoneType == "WATCH_HIGH_VOLATILITY")
    {
       return buy
          ? "M1/M5 reaction support during high volatility"
          : "M1/M5 reaction resistance during high volatility";
    }
 
-   if(g_zoneType == "WATCH_TRANSITION")
+   if(zoneType == "WATCH_TRANSITION")
    {
       return buy
          ? "M5 20-bar low + ATR support edge while regime transitions"
@@ -1208,11 +1306,17 @@ string ZoneReason(bool buy)
          " score " +
          IntegerToString(g_r2Score);
    }
-   else if(g_zoneWatchReason != "")
+   else
    {
-      reason +=
-         " | " +
-         g_zoneWatchReason;
+      string sideWatchReason =
+         ZoneWatchReasonForSide(buy);
+
+      if(sideWatchReason != "")
+      {
+         reason +=
+            " | " +
+            sideWatchReason;
+      }
    }
 
    return reason;
@@ -1786,20 +1890,22 @@ string TradePlanText(string primarySide)
 string CompactZoneReason(bool buy)
 {
    string reason = "";
+   string analysisId = ZoneAnalysisIdForSide(buy);
+   string zoneType = ZoneTypeForSide(buy);
 
-   if(StringFind(g_zoneAnalysisId, "BREAKOUT_RETEST_BUY") >= 0)
+   if(StringFind(analysisId, "BREAKOUT_RETEST_BUY") >= 0)
       reason = buy ? "M5 breakout retest support" : "Opposite reaction zone";
-   else if(StringFind(g_zoneAnalysisId, "BREAKOUT_RETEST_SELL") >= 0)
+   else if(StringFind(analysisId, "BREAKOUT_RETEST_SELL") >= 0)
       reason = buy ? "Opposite reaction zone" : "M5 breakout retest resistance";
-   else if(StringFind(g_zoneAnalysisId, "TREND_PULLBACK_BUY") >= 0)
+   else if(StringFind(analysisId, "TREND_PULLBACK_BUY") >= 0)
       reason = buy ? "M5 EMA20/50 pullback support" : "Opposite reaction zone";
-   else if(StringFind(g_zoneAnalysisId, "TREND_PULLBACK_SELL") >= 0)
+   else if(StringFind(analysisId, "TREND_PULLBACK_SELL") >= 0)
       reason = buy ? "Opposite reaction zone" : "M5 EMA20/50 pullback resistance";
-   else if(StringFind(g_zoneAnalysisId, "RANGE_REVERSION") >= 0)
+   else if(StringFind(analysisId, "RANGE_REVERSION") >= 0)
       reason = buy ? "M30 range lower edge" : "M30 range upper edge";
-   else if(g_zoneType == "WATCH_HIGH_VOLATILITY")
+   else if(zoneType == "WATCH_HIGH_VOLATILITY")
       reason = buy ? "M1/M5 volatility support" : "M1/M5 volatility resistance";
-   else if(g_zoneType == "WATCH_TRANSITION")
+   else if(zoneType == "WATCH_TRANSITION")
       reason = buy ? "M5 structural support edge" : "M5 structural resistance edge";
    else
       reason = buy ? "Structural buy reaction area" : "Structural sell reaction area";
