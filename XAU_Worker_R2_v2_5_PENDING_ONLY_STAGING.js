@@ -6039,7 +6039,10 @@ async function processAutoR2Signal(env) {
       market_state: result.market_state,
       selected_strategy: result.selector?.selected_strategy || "NONE",
       selected_order_type: result.selector?.selected_order_type || "NONE",
-      setup_score: setup?.setup_score ?? 0
+      setup_score: setup?.setup_score ?? 0,
+      pending_only_mode: true,
+      pending_only_reason: setup?.pending_only_reason || "NO_QUALIFIED_PENDING_SETUP",
+      pending_viable: Boolean(setup?.pending_viable)
     };
   }
 
@@ -6877,12 +6880,13 @@ function r2Candidate(x, market) {
     x.order_type === "BUY_STOP" ? entry - ask :
     x.order_type === "SELL_STOP" ? bid - entry : -1
   );
-  const viable = validType && !(
-    x.pending_context && !hasZone
-  ) && relation && Number.isFinite(clear) &&
+  const contextValid = !x.pending_context || (hasZone &&
+    (x.order_type === "BUY_LIMIT" || x.order_type === "SELL_LIMIT"));
+  const viable = validType && contextValid &&
+    relation && Number.isFinite(clear) &&
     clear > margin;
   if (!validType)reason = "MARKET_EXECUTION_FORBIDDEN";
-  else if (x.pending_context && !hasZone)reason = "IN_ZONE_NO_VALID_PENDING_ANCHOR";
+  else if (!contextValid)reason = "IN_ZONE_NO_VALID_PENDING_ANCHOR";
   else if (!relation || !viable)reason = "WAIT_PRICE_MOVE_AWAY_FOR_PENDING";
   const sl = Number(x.sl), tp1 = Number(x.tp1), tp2 = Number(x.tp2);
   const risk = Math.abs(entry - sl);
@@ -6913,7 +6917,7 @@ function r2Candidate(x, market) {
     pending_clearance_min_usd: roundNumber(margin,2),
     strategy: x.strategy,
     side: x.side,
-    order_type: x.order_type,
+    order_type: validType ? x.order_type : "NONE",
     setup_score: Math.min(100,Math.max(0,Math.round(x.score))),
     score: Math.min(100,Math.max(0,Math.round(x.score))),
     entry: roundNumber(entry,2),
