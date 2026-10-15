@@ -6974,6 +6974,15 @@ int OnInit()
       return INIT_FAILED;
    }
 
+   if(InpTelemetryOnlyStagingMode &&
+      (StringFind(InpWorkerBaseURL,"example.invalid")>=0 ||
+       StringFind(InpWorkerBaseURL,"xau-live-bridge.r7ed2015.workers.dev")>=0))
+   {
+      Print("STAGING BLOCK: configure a separate Worker URL with its own D1.");
+      Print("Do not use the production Worker or placeholder URL for testing.");
+      return INIT_FAILED;
+   }
+
    if(StringLen(InpWriteToken) == 0)
    {
       Print(
