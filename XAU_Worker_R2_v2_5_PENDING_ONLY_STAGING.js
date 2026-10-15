@@ -3160,6 +3160,7 @@ async function handleLatestZones(
         news_state: "UNKNOWN",
         news_risk: "UNKNOWN",
         r2_audit_status: "WATCH",
+        r2_pending_only_mode: 1,
         r2_market_state: "STALE_MARKET",
         r2_strategy: "NONE",
         r2_order_type: "NONE",
@@ -3191,6 +3192,9 @@ async function handleLatestZones(
       // Flat fields are intentional so the lightweight MT5 JSON reader
       // can consume them without a full nested JSON parser.
       r2_audit_status: r2Audit.status,
+      r2_pending_only_mode: 1,
+      r2_pending_viable: r2Result.setup?.pending_viable ? 1 : 0,
+      r2_pending_reason: r2Result.setup?.pending_only_reason || "NONE",
       r2_market_state: r2Audit.market_state,
       r2_strategy: r2Audit.strategy,
       r2_order_type: r2Audit.order_type,
@@ -3200,7 +3204,9 @@ async function handleLatestZones(
       r2_trigger_ready: (r2Audit.trigger_ready && newsGate.entry_allowed) ? 1 : 0,
       r2_trigger: r2Audit.trigger,
       r2_trigger_count: r2Audit.trigger_count,
-      r2_reason: newsGate.entry_allowed ? r2Audit.reason :
+      r2_reason: newsGate.entry_allowed ?
+            (r2Audit.allowed ? r2Audit.reason :
+             (r2Result.setup?.pending_only_reason || r2Audit.reason)) :
                  "NEWS_" + newsGate.state + "_" + newsGate.reason
     });
   } catch (error) {
@@ -6639,7 +6645,9 @@ async function calculateR2Swing(env) {
         order_type: c.order_type,
         score: c.score,
         allowed: c.allowed,
-        rr_tp1: c.rr_tp1
+        rr_tp1: c.rr_tp1,
+        pending_viable: c.pending_viable,
+        pending_only_reason: c.pending_only_reason
       }))
     },
     setup: best || r2NoTrade("No R2 setup reached the minimum score or structural requirements."),
@@ -6716,7 +6724,8 @@ function r2PullbackCandidate(side, market, h1, m30, m15, m5, highVol) {
   return r2Candidate({
     strategy: buy ? "PULLBACK_BUY" : "PULLBACK_SELL",
     side,
-    order_type: inZone ? (buy ? "BUY" : "SELL") : (buy ? "BUY_LIMIT" : "SELL_LIMIT"),
+    order_type: buy ? "BUY_LIMIT" : "SELL_LIMIT",
+    pending_context: inZone,
     score,
     allowed,
     entry, sl, tp1: roundNumber(tp1,2), tp2: roundNumber(tp2,2), rr1,
@@ -6724,7 +6733,7 @@ function r2PullbackCandidate(side, market, h1, m30, m15, m5, highVol) {
     zone_low: roundNumber(zoneLow,2), zone_high: roundNumber(zoneHigh,2),
     invalidation: roundNumber(invalidation,2),
     notes: ["H1/M30 trend pullback", inZone ? "Price is already inside value zone" : "Prefer limit entry at value zone"]
-  });
+  }, market);
 }
 
 function r2BreakoutCandidate(side, market, h1, m30, m15, m5, strength, highVol) {
@@ -6760,7 +6769,7 @@ function r2BreakoutCandidate(side, market, h1, m30, m15, m5, strength, highVol) 
     breakout_level: roundNumber(level,2), breakout_grade: grade, breakout_buffer: roundNumber(buffer,2),
     invalidation: roundNumber(invalidation,2),
     notes: [strength.compression ? "Compression present" : "Compression weak", `Breakout grade ${grade}`, chase ? "Do not chase: price extended past stop-entry zone" : "Stop-entry remains structurally usable"]
-  });
+  }, market);
 }
 
 function r2RetestCandidate(side, market, h1, m30, m15, m5, strength, highVol) {
@@ -6787,13 +6796,14 @@ function r2RetestCandidate(side, market, h1, m30, m15, m5, strength, highVol) {
   return r2Candidate({
     strategy: buy ? "RETEST_BUY" : "RETEST_SELL",
     side,
-    order_type: inZone && confirm ? (buy ? "BUY" : "SELL") : (buy ? "BUY_LIMIT" : "SELL_LIMIT"),
+    order_type: buy ? "BUY_LIMIT" : "SELL_LIMIT",
+    pending_context: inZone,
     score, allowed, entry, sl, tp1:roundNumber(tp1,2), tp2:roundNumber(tp2,2), rr1,
     expiry_hours: highVol ? 4 : 8,
     zone_low:roundNumber(zoneLow,2), zone_high:roundNumber(zoneHigh,2), breakout_level:roundNumber(level,2),
     invalidation:roundNumber(invalidation,2),
     notes:[held?"Broken level is holding":"Retest failed to hold", inZone?"Price is in retest zone":"Wait for retest zone", confirm?"M5 confirmation present":"M5 confirmation not required until price reaches zone"]
-  });
+  }, market);
 }
 
 function r2RangeCandidate(side, market, h1, m30, m15, m5) {
@@ -6821,46 +6831,117 @@ function r2RangeCandidate(side, market, h1, m30, m15, m5) {
   const allowed=score>=70&&!neutral&&rr1>=1.30;
   return r2Candidate({
     strategy:buy?"RANGE_BUY":"RANGE_SELL", side,
-    order_type:inZone&&confirm?(buy?"BUY":"SELL"):(buy?"BUY_LIMIT":"SELL_LIMIT"),
+    order_type:buy?"BUY_LIMIT":"SELL_LIMIT",pending_context:inZone,
     score,allowed,entry,sl,tp1:roundNumber(tp1,2),tp2:roundNumber(tp2,2),rr1,
     expiry_hours:6,zone_low:roundNumber(zoneLow,2),zone_high:roundNumber(zoneHigh,2),
     invalidation:roundNumber(buy?m30.low20:m30.high20,2),
     notes:[neutral?"No new entry in middle 40-60% of range":"Range edge setup", confirm?"M5 behavior supports reversal":"Wait for edge behavior"]
-  });
+  }, market);
 }
 
-function r2Candidate(x) {
-  const risk=Math.abs(x.entry-x.sl);
+// Pending Only normalization. When a zone is already touched, NEVER
+// chase at market: anchor a fresh LIMIT deeper inside the original value
+// zone. If no broker-independent price clearance remains, WATCH instead.
+// The MT5 EA checks the broker's actual SYMBOL_TRADE_STOPS_LEVEL again.
+function r2Candidate(x, market) {
+  const buy = x.side === "BUY";
+  const validType = ["BUY_LIMIT","SELL_LIMIT","BUY_STOP","SELL_STOP"].includes(x.order_type);
+  const zoneLow = Number(x.zone_low);
+  const zoneHigh = Number(x.zone_high);
+  const hasZone = x.zone_low !== undefined && x.zone_low !== null &&
+    x.zone_high !== undefined && x.zone_high !== null &&
+    Number.isFinite(zoneLow) && Number.isFinite(zoneHigh) && zoneHigh > zoneLow;
+  let entry = Number(x.entry);
+  let reason = "PENDING_PRICE_VALID";
+  if (x.pending_context) {
+    if (hasZone && (x.order_type === "BUY_LIMIT" || x.order_type === "SELL_LIMIT")) {
+      const width = zoneHigh - zoneLow;
+      entry = roundNumber(buy ? zoneLow + 0.20 * width
+                              : zoneHigh - 0.20 * width, 2);
+      reason = "IN_ZONE_RETRACE_LIMIT_PLANNED";
+    } else {
+      reason = "IN_ZONE_NO_VALID_PENDING_ANCHOR";
+    }
+  }
+  const bid = Number(market?.bid);
+  const ask = Number(market?.ask);
+  const spread = ask - bid;
+  const goodMarket = Number.isFinite(bid) && Number.isFinite(ask) &&
+    ask >= bid && bid > 0 && spread >= 0;
+  const margin = Math.max(0.10, 2 * (goodMarket ? spread : 0));
+  const relation = validType && goodMarket &&
+    r2PendingPlacementCheck(x.order_type, entry, market).allowed;
+  const clear = !goodMarket ? -1 : (
+    x.order_type === "BUY_LIMIT" ? ask - entry :
+    x.order_type === "SELL_LIMIT" ? entry - bid :
+    x.order_type === "BUY_STOP" ? entry - ask :
+    x.order_type === "SELL_STOP" ? bid - entry : -1
+  );
+  const viable = validType && !(
+    x.pending_context && !hasZone
+  ) && relation && Number.isFinite(clear) &&
+    clear > margin;
+  if (!validType)reason = "MARKET_EXECUTION_FORBIDDEN";
+  else if (x.pending_context && !hasZone)reason = "IN_ZONE_NO_VALID_PENDING_ANCHOR";
+  else if (!relation || !viable)reason = "WAIT_PRICE_MOVE_AWAY_FOR_PENDING";
+  const sl = Number(x.sl), tp1 = Number(x.tp1), tp2 = Number(x.tp2);
+  const risk = Math.abs(entry - sl);
+  const directionalLevels = buy ?
+    sl < entry && entry < tp1 && entry < tp2 :
+    tp1 < entry && entry < sl && tp2 < entry;
+  const rr = Number.isFinite(risk) && risk > 0 ?
+     (buy ? tp1 - entry : entry - tp1) / risk : 0;
+  const riskFloor = Number(x.min_risk_usd) || 0;
+  const validLevels = Number.isFinite(entry) &&
+    Number.isFinite(sl) && Number.isFinite(tp1) &&
+    Number.isFinite(tp2) && directionalLevels &&
+    risk > Math.max(0, riskFloor) && rr >= 1.30;
+  if (viable && !validLevels)reason = "PENDING_LEVELS_OR_RR_INVALID";
+  const allowed = Boolean(x.allowed) && viable && validLevels;
+  if (!x.allowed && viable && validLevels)
+    reason = "STRUCTURAL_SCORE_OR_CONTEXT_NOT_APPROVED";
+  const notes = [...(x.notes || []),
+    "PENDING ONLY: " + reason,
+    x.pending_context ? "Price touched value zone; wait for retracement to LIMIT" :
+                        "Future pending activation required, never market"];
   return {
-    allowed:!!x.allowed,
-    strategy:x.strategy,
-    side:x.side,
-    order_type:x.order_type,
-    setup_score:Math.min(100,Math.max(0,Math.round(x.score))),
-    score:Math.min(100,Math.max(0,Math.round(x.score))),
-    entry:roundNumber(x.entry,2),
-    sl:roundNumber(x.sl,2),
-    tp1:roundNumber(x.tp1,2),
-    tp2:roundNumber(x.tp2,2),
-    risk_usd_price:roundNumber(risk,2),
-    rr_tp1:roundNumber(x.rr1,3),
-    expiry_hours:x.expiry_hours,
-    overnight_allowed:x.expiry_hours>=8,
-    zone_low:x.zone_low??null,
-    zone_high:x.zone_high??null,
-    breakout_level:x.breakout_level??null,
-    breakout_grade:x.breakout_grade??null,
-    breakout_buffer:x.breakout_buffer??null,
-    invalidation:x.invalidation??null,
+    allowed,
+    pending_only_mode: true,
+    pending_viable: viable,
+    pending_only_reason: reason,
+    pending_clearance_usd: roundNumber(Math.max(0, clear),2),
+    pending_clearance_min_usd: roundNumber(margin,2),
+    strategy: x.strategy,
+    side: x.side,
+    order_type: x.order_type,
+    setup_score: Math.min(100,Math.max(0,Math.round(x.score))),
+    score: Math.min(100,Math.max(0,Math.round(x.score))),
+    entry: roundNumber(entry,2),
+    sl: roundNumber(sl,2),
+    tp1: roundNumber(tp1,2),
+    tp2: roundNumber(tp2,2),
+    risk_usd_price: roundNumber(risk,2),
+    rr_tp1: roundNumber(rr,3),
+    expiry_hours: x.expiry_hours,
+    overnight_allowed: x.expiry_hours>=8,
+    zone_low: x.zone_low??null,
+    zone_high: x.zone_high??null,
+    breakout_level: x.breakout_level??null,
+    breakout_grade: x.breakout_grade??null,
+    breakout_buffer: x.breakout_buffer??null,
+    invalidation: x.invalidation??null,
     lot_rule:"<200=0.01; 200-299=0.02; 300-399=0.03; +0.01 per additional $100 balance",
     points_note:"$10 XAU price movement = 1000 platform points when _Point=0.01",
-    notes:x.notes||[]
+    notes
   };
 }
 
 function r2NoTrade(reason) {
   return {
     allowed:false,
+    pending_only_mode:true,
+    pending_viable:false,
+    pending_only_reason:"NO_QUALIFIED_PENDING_SETUP",
     strategy:"NONE",
     side:null,
     order_type:"NONE",
