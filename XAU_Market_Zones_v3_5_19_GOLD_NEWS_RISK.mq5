@@ -2921,6 +2921,7 @@ int g_newsBlockRisk=0;
 int g_newsAttentionRisk=0;
 string g_newsAttentionName="";
 bool g_newsEntryBlocked=true;
+string g_newsLastLoggedStatus="";
 bool g_newsFeedHealthy=false;
 string g_newsFeedStatus="NOT CHECKED";
 datetime g_newsLastShock=0;
@@ -2966,10 +2967,14 @@ int GoldNewsRisk(string title,int importance)
     StringFind(t,"fed chair")>=0 ||
     StringFind(t,"nonfarm payroll")>=0 ||
     StringFind(t,"non-farm payroll")>=0 ||
+    StringFind(t,"non farm payroll")>=0 ||
+    StringFind(t,"nonfarm employment")>=0 ||
+    StringFind(t,"non-farm employment")>=0 ||
     StringFind(t,"consumer price index")>=0 ||
     StringFind(t,"cpi")>=0 ||
     StringFind(t,"core pce price")>=0 ||
     StringFind(t,"pce price index")>=0 ||
+    StringFind(t,"pce inflation")>=0 ||
     StringFind(t,"unemployment rate")>=0)return 4;
  if(StringFind(t,"fomc minutes")>=0)return MathMax(level,3);
  return level;
@@ -2999,7 +3004,9 @@ bool NewsTierSelfTest()
   GoldNewsRisk("Natural Gas Storage",(int)CALENDAR_IMPORTANCE_HIGH)==1 &&
   GoldNewsRisk("CPI",(int)CALENDAR_IMPORTANCE_HIGH)==4 &&
   GoldNewsRisk("Nonfarm Payrolls",(int)CALENDAR_IMPORTANCE_HIGH)==4 &&
+  GoldNewsRisk("Non-Farm Employment Change",(int)CALENDAR_IMPORTANCE_HIGH)==4 &&
   GoldNewsRisk("FOMC Statement",(int)CALENDAR_IMPORTANCE_HIGH)==4 &&
+  GoldNewsRisk("Core PCE Price Index",(int)CALENDAR_IMPORTANCE_HIGH)==4 &&
   GoldNewsRisk("Retail Sales",(int)CALENDAR_IMPORTANCE_HIGH)==3 &&
   GoldNewsRisk("Factory Orders",(int)CALENDAR_IMPORTANCE_MODERATE)==2 &&
   !NewsRiskBlocks(1) && NewsRiskBlocks(3) && NewsRiskBlocks(4);
@@ -3189,6 +3196,11 @@ bool NewsAllowsAutoEntry()
  else if(g_newsAttentionRisk==1)
   g_newsStatus="NEWS LOW: "+g_newsAttentionName;
  else g_newsStatus="NEWS CLEAR";
+ if(g_newsStatus!=g_newsLastLoggedStatus)
+ {
+  g_newsLastLoggedStatus=g_newsStatus;
+  AuditEvent("NEWS","DECISION",g_newsEntryBlocked?"BLOCK":"ALLOW",g_newsStatus);
+ }
  return !g_newsEntryBlocked;
 }
 
