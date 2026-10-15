@@ -194,6 +194,8 @@ input double InpR1ZoneHardMaxAgeHours = 4.0;
 input double InpR1MinimumNewZoneShiftUSD = 1.50;
 input int InpR1MaxFeedAgeSeconds = 30;
 input bool InpR1RequireTradableWorkerContext = true;
+input bool InpR1RotateToFreshTradableZone = true;
+input int InpR1MinimumLockMinutes = 20;
 
 // Simple decision layer.
 // The locked zones stay analytical; this layer gives one clear action.
@@ -703,6 +705,20 @@ bool R1RearmDistanceValid(string side,double low,double high)
    double oldHigh=side=="BUY"?g_r1RetiredBuyHigh:g_r1RetiredSellHigh;
    return MathMax(MathAbs(low-oldLow),MathAbs(high-oldHigh))>=
           MathMax(0.25,InpR1MinimumNewZoneShiftUSD);
+}
+bool R1ZoneShouldRotate(PersistentZoneState &z,
+                        double low,double high,string incomingType)
+{
+   if(!InpR1RotateToFreshTradableZone || !z.active ||
+      !ValidZone(low,high) ||
+      StringFind(incomingType,"WATCH")>=0 ||
+      incomingType=="" || HasPositionOnSymbol())
+      return false;
+   if(TimeTradeServer()<z.created_at+
+      MathMax(5,InpR1MinimumLockMinutes)*60)
+      return false;
+   return MathMax(MathAbs(low-z.low),MathAbs(high-z.high))>=
+      MathMax(0.25,InpR1MinimumNewZoneShiftUSD);
 }
 bool R1EntryAllowedForSide(string side,string &why)
 {
@@ -4427,6 +4443,13 @@ void ProcessAutoSignalExecutorCore()
       return;
    }
 
+   string r1EntryReason="";
+   if(!R1EntryAllowedForSide(side,r1EntryReason))
+   {
+      g_autoExecutionStatus="BLOCK | "+r1EntryReason;
+      AuditState("R1","BLOCK",r1EntryReason);
+      return;
+   }
    if(signalKey == "" || signalKey == g_autoLastSignalKey)
       return;
 
@@ -7260,6 +7283,7 @@ int OnInit()
    else
    {
       LoadPersistentZoneLifecycle();
+      EvaluatePersistentZoneLifecycle();
       SyncPersistentZonesToGlobals();
    }
 
@@ -7332,6 +7356,9 @@ void OnTimer()
    NewsAllowsAutoEntry();
    datetime now =
       TimeCurrent();
+
+   if(InpLockZoneIdentity)
+      EvaluatePersistentZoneLifecycle();
 
    // --------------------------------------------------------
    // MARKET DATA
@@ -9166,6 +9193,15 @@ void BuildSimpleDecision(bool ignoreOpenPositions = false)
    g_simpleTP = 0.0;
 
    // Second priority: preserve a recently issued READY signal.
+   // A cached READY cannot survive an expired or unverified zone.
+   string r1FreshReason="";
+   string r1Focus=SimpleActionSide();
+   if(!R1EntryAllowedForSide(r1Focus,r1FreshReason))
+   {
+      g_simpleWhy=r1FreshReason;
+      g_simpleConfirmText="WAIT | "+r1FreshReason;
+      return;
+   }
    if(ReadyLatchStillValid())
    {
       g_simpleDecision = g_latchedSide + " READY";
@@ -10608,6 +10644,17 @@ void PollDecisionZones()
       return;
    }
 
+   bool hasAge=StringFind(response,"\"market_age_seconds\":")>=0;
+   double feedAge=hasAge?JsonGetDouble(response,"market_age_seconds"):-1.0;
+   if(!hasAge || feedAge<0.0 ||
+      feedAge>(double)MathMax(10,InpR1MaxFeedAgeSeconds))
+   {
+      g_r1LastFreshFeedServer=0;
+      g_r1LastFeedState="STALE_MARKET_FEED";
+      AuditState("R1","FEED","STALE_OR_MISSING_AGE");
+      EvaluatePersistentZoneLifecycle();
+      return;
+   }
    if(
       StringFind(
          response,
@@ -10615,6 +10662,8 @@ void PollDecisionZones()
       ) >= 0
    )
    {
+      g_r1LastFreshFeedServer=0;
+      g_r1LastFeedState="WORKER_NO_ZONES";
       if(
          g_zoneAnalysisId != "" ||
          ValidZone(
@@ -10846,6 +10895,14 @@ void PollDecisionZones()
          "armed_rr"
       );
 
+   // Incoming candidate is shown separately from locked decision zone.
+   g_r1LastFreshFeedServer=TimeTradeServer();
+   g_r1LastFeedState="FRESH";
+   g_r1WorkerBuyLow=buyLow;
+   g_r1WorkerBuyHigh=buyHigh;
+   g_r1WorkerSellLow=sellLow;
+   g_r1WorkerSellHigh=sellHigh;
+
    g_zoneAnalysisId =
       analysisId;
 
@@ -10903,6 +10960,10 @@ void PollDecisionZones()
    if(InpLockZoneIdentity)
    {
       EvaluatePersistentZoneLifecycle();
+      if(R1ZoneShouldRotate(g_pBuyZone,buyLow,buyHigh,zoneType))
+         InvalidatePersistentZone(g_pBuyZone,"ROTATE_FRESH_WORKER");
+      if(R1ZoneShouldRotate(g_pSellZone,sellLow,sellHigh,zoneType))
+         InvalidatePersistentZone(g_pSellZone,"ROTATE_FRESH_WORKER");
 
       if(!g_pBuyZone.active && ValidZone(buyLow, buyHigh))
       {
