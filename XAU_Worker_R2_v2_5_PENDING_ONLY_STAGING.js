@@ -8191,3 +8191,6 @@ function escapeHtml(value) {
       "&#039;"
     );
 }
+// Pure diagnostic exports for offline Node regression tests (no routes).
+export { r2Candidate as __testR2Candidate,
+         r2PendingPlacementCheck as __testPendingPlacement };
