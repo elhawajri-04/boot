@@ -3846,6 +3846,22 @@ void ProcessR2PendingExecutor()
    if(InpR2KeepArmedPlan && CountR2PendingOrders()>0)
    {
       string why=R2ArmedInvalidation();
+      // Never keep an order that now violates total or R2-only risk limits.
+      if(why=="")
+      {
+         double money=0.0,pct=0.0;int unknown=0;
+         bool known=CalculateCurrentXAUPotentialSLRisk(money,pct,unknown);
+         double hardCap=10.0;
+         if(InpEnableMaxSLRiskGuard && InpMaxSLRiskPercent>0.0)
+            hardCap=MathMin(hardCap,InpMaxSLRiskPercent);
+         if(!known)why="UNVERIFIABLE_TOTAL_SL_RISK";
+         else if(pct>hardCap+0.01)why="TOTAL_SL_RISK_CAP_EXCEEDED";
+         double r2Money=0.0,r2Pct=0.0;int r2Unknown=0;
+         bool r2Known=CalculateAutoEnginePotentialSLRisk(
+            "R2",r2Money,r2Pct,r2Unknown);
+         if(!r2Known)why="UNKNOWN_R2_SL_RISK";
+         else if(r2Pct>capPercent+0.01)why="R2_SL_RISK_CAP_EXCEEDED";
+      }
       if(why!="")
       {
          DeleteR2PendingOrders(why);
@@ -4066,6 +4082,7 @@ void ProcessR2PendingExecutor()
             ? "NO CAPACITY"
             : stopReason
          );
+      AuditState("R2","REJECT",stopReason==""?"NO_CAPACITY":stopReason);
    }
 
    g_r2PendingExecutionInProgress = false;
