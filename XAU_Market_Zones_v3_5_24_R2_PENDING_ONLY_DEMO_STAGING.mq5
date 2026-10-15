@@ -3575,6 +3575,8 @@ bool BuildR2PendingExecutionPlan(
       return false;
    }
 
+   // A valid pending setup can only be executed with Worker v2.5;
+   // direct BUY or SELL is never sent from the broker executor.
    bool supportedPending =
       g_r2OrderType == "BUY_LIMIT" ||
       g_r2OrderType == "SELL_LIMIT" ||
@@ -11588,19 +11590,29 @@ void PollR2Visuals()
       );
 
    if(!BridgeIsOK(status,response))
-      BridgeObserve("R2",false,status);
-   if(
-      status < 200 ||
-      status >= 300
-   )
    {
-      Print(
-         "R2 visual poll failed. HTTP=",
-         status,
-         " response=",
-         response
-      );
+      BridgeObserve("R2",false,status);
+      Print("R2 poll failed or malformed response. HTTP=",status);
+      return;
+   }
 
+   // Require top-level R2 pending-only declaration, never old v2.4.
+   int modeAt=StringFind(response,"\"pending_only_mode\":true");
+   int marketAt=StringFind(response,"\"market\":{");
+   if(modeAt<0 || (marketAt>=0 && modeAt>marketAt))
+   {
+      ResetR2VisualState();
+      BridgeObserve("R2",false,status);
+      AuditState("R2","PROTOCOL","V2_5_PENDING_ONLY_WORKER_REQUIRED");
+      return;
+   }
+   // A successful HTTP response does not imply fresh price/candle data.
+   double cloudAge=JsonGetDouble(response,"market_age_seconds");
+   if(cloudAge<0 || cloudAge>InpBridgeMaxMarketAgeSeconds)
+   {
+      ResetR2VisualState();
+      BridgeObserve("R2",false,status);
+      AuditState("R2","STALE","CLOUD_R2_AGE="+DoubleToString(cloudAge,1));
       return;
    }
 
@@ -11652,6 +11664,14 @@ void PollR2Visuals()
          setupJson,
          "\"allowed\":true"
       ) >= 0;
+   g_r2PendingProtocolOK = true;
+   g_r2PendingViable =
+      StringFind(setupJson,"\"pending_viable\":true")>=0;
+   g_r2PendingOnlyReason =
+      JsonGetString(setupJson,"pending_only_reason");
+   if(g_r2PendingOnlyReason=="")
+      g_r2PendingOnlyReason="PENDING_NO_DETAIL";
+   g_r2LastFreshPollServer=TimeTradeServer();
 
    g_r2Strategy =
       JsonGetString(
