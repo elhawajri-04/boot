@@ -7107,6 +7107,12 @@ int OnInit()
       " | R2 PENDING=", (InpEnableR2PendingExecutor ? "ON" : "OFF")
    );
 
+   if(InpNewsTierSelfTestOnInit && !NewsTierSelfTest())
+   {
+      Print("NEWS RISK SELFTEST FAILED: safety halt, fix classification before trading");
+      return INIT_FAILED;
+   }
+
    if(InpDrawDecisionZones)
    {
       PollDecisionZones();
@@ -9896,9 +9902,7 @@ void DrawCompactZonePanel()
    BuildSimpleDecision();
    bool readyBuy=g_simpleDecision=="BUY READY";
    bool readySell=g_simpleDecision=="SELL READY";
-   bool newsBlocked=InpEnableUSDNewsGuard &&
-      StringFind(g_newsStatus,"NEWS CLEAR")<0 &&
-      StringFind(g_newsStatus,"NEWS GUARD OFF")<0;
+   bool newsBlocked=InpEnableUSDNewsGuard && g_newsEntryBlocked;
 
    color headerColor=C'92,76,37';
    if(readyBuy)headerColor=C'27,106,77';
@@ -10053,15 +10057,15 @@ void DrawCompactZonePanel()
       "   |   NEWS "+newsLabel,
       (session && !newsBlocked)?InpPanelR1Color:InpPanelWarningColor);
 
-   string newsReason="NEWS   Calendar normal";
-   if(newsBlocked)newsReason=g_newsStatus;
-   else if(!InpEnableUSDNewsGuard)newsReason="NEWS   Guard disabled";
-   DashboardCollectRow(19,StringSubstr(newsReason,0,68),
-      newsBlocked?InpPanelWarningColor:InpPanelMutedColor);
+   string newsReason=g_newsStatus;
+   DashboardCollectRow(19,newsReason,
+      newsBlocked?InpPanelWarningColor:
+       (StringFind(newsReason,"CAUTION")>=0?
+        InpPanelWarningColor:InpPanelMutedColor));
 
    // Long economic-event titles get their own line; no clipping at the edge.
    string nextTime="NEXT USD (SERVER)   None scheduled";
-   string eventName="EVENT   No high-impact release in feed";
+   string eventName="EVENT   No upcoming USD release";
    if(InpEnableUSDNewsGuard && !g_newsFeedHealthy)
    {
       nextTime="NEXT USD   CALENDAR UNAVAILABLE";
@@ -10071,7 +10075,7 @@ void DrawCompactZonePanel()
    {
       nextTime="NEXT USD (SERVER)   "+
          TimeToString(g_newsNextTime,TIME_DATE|TIME_MINUTES);
-      eventName="EVENT   "+g_newsNextName;
+      eventName="EVENT "+g_newsNextRisk+"   "+g_newsNextName;
    }
    DashboardCollectRow(20,nextTime,InpPanelMutedColor);
    DashboardCollectRow(21,eventName,InpPanelMutedColor);
