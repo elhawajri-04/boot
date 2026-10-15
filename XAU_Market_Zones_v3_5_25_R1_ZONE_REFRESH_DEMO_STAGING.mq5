@@ -10187,6 +10187,36 @@ void DrawCompactZonePanel()
       StringFind(r2Context,"CAUTION")>=0 ?
       InpPanelWarningColor : InpPanelR2Color);
 
+   // R1 health and live worker candidate are display-only; never fake READY.
+   datetime r1Now=TimeTradeServer();
+   int r1FeedSeconds=(g_r1LastFreshFeedServer>0)?
+      (int)MathMax(0,(double)(r1Now-g_r1LastFreshFeedServer)):-1;
+   string r1FeedAge=(r1FeedSeconds<0)?"UNKNOWN":
+      IntegerToString(r1FeedSeconds)+"s";
+   double r1LockHours=-1;
+   if(side=="BUY" && g_pBuyZone.active)
+      r1LockHours=MathMax(0,(double)(r1Now-g_pBuyZone.created_at)/3600.0);
+   else if(side=="SELL" && g_pSellZone.active)
+      r1LockHours=MathMax(0,(double)(r1Now-g_pSellZone.created_at)/3600.0);
+   string r1LockAge=r1LockHours<0?"NONE":
+      DoubleToString(r1LockHours,1)+"h/"+DoubleToString(R1EffectiveZoneMaxAgeHours(),1)+"h";
+   string r1Auto=(InpTelemetryOnlyStagingMode?"MONITOR":
+      (InpEnableAutoSignalExecutor?"ON":"OFF"));
+   DashboardCollectRow(9,"R1 AUTO "+r1Auto+" | FEED "+r1FeedAge+
+      " | LOCK "+r1LockAge,
+      r1FeedSeconds>MathMax(10,InpR1MaxFeedAgeSeconds)?
+      InpPanelWarningColor:InpPanelR1Color);
+   if(ValidZone(g_r1WorkerBuyLow,g_r1WorkerBuyHigh) ||
+      ValidZone(g_r1WorkerSellLow,g_r1WorkerSellHigh))
+      DashboardCollectRow(9,"R1 FRESH BUY "+
+         DoubleToString(g_r1WorkerBuyLow,_Digits)+"-"+
+         DoubleToString(g_r1WorkerBuyHigh,_Digits)+
+         " SELL "+DoubleToString(g_r1WorkerSellLow,_Digits)+"-"+
+         DoubleToString(g_r1WorkerSellHigh,_Digits),
+         InpPanelMutedColor);
+   DashboardCollectRow(9,"R1 STATUS "+g_simpleWhy,
+      ready?InpPanelR1Color:InpPanelMutedColor);
+
    // -------- POSITION MANAGEMENT --------
    DashboardCollectRow(10,"POSITION MANAGEMENT",InpPanelTextColor);
    string managerLabel=InpEnableActiveTradeManager?"ON":"OFF";
@@ -10965,7 +10995,11 @@ void PollDecisionZones()
       if(R1ZoneShouldRotate(g_pSellZone,sellLow,sellHigh,zoneType))
          InvalidatePersistentZone(g_pSellZone,"ROTATE_FRESH_WORKER");
 
-      if(!g_pBuyZone.active && ValidZone(buyLow, buyHigh))
+      bool approvedR1Context=(zoneType!="" &&
+         StringFind(zoneType,"WATCH")<0 &&
+         StringFind(analysisId,"WATCH_")!=0);
+      if(!g_pBuyZone.active && approvedR1Context &&
+         ValidZone(buyLow, buyHigh))
       {
          AdoptPersistentZone(
             g_pBuyZone,
@@ -10986,7 +11020,8 @@ void PollDecisionZones()
          g_pBuyZone.last_seen_at = TimeCurrent();
       }
 
-      if(!g_pSellZone.active && ValidZone(sellLow, sellHigh))
+      if(!g_pSellZone.active && approvedR1Context &&
+         ValidZone(sellLow, sellHigh))
       {
          AdoptPersistentZone(
             g_pSellZone,
@@ -11053,6 +11088,17 @@ void PollDecisionZones()
 
    RefreshDecisionZoneObjects();
 
+   // Log state CHANGES only; healthy 5s polling does not need
+   // 1000s of duplicate lines in Experts. Dashboard still updates each tick.
+   static string lastZonePrinted="";
+   string thisZonePrinted=g_zoneAnalysisId+"|"+
+      DoubleToString(g_buyZoneLow,_Digits)+"|"+
+      DoubleToString(g_sellZoneLow,_Digits)+"|"+
+      DoubleToString(g_r1WorkerBuyLow,_Digits)+"|"+
+      DoubleToString(g_r1WorkerSellLow,_Digits);
+   if(thisZonePrinted!=lastZonePrinted)
+   {
+   lastZonePrinted=thisZonePrinted;
    Print(
       "Market wait zones updated from Worker. Analysis=",
       g_zoneAnalysisId,
@@ -11094,6 +11140,7 @@ void PollDecisionZones()
          _Digits
       )
    );
+   }
 }
 
 
