@@ -997,6 +997,7 @@ string ZoneTypeForSide(bool buy)
       if(!buy && g_pSellZone.active)
          return g_pSellZone.zone_type;
    }
+
    return g_zoneType;
 }
 
@@ -1997,6 +1998,7 @@ bool MarketTradeRetcodeExecuted()
       code == TRADE_RETCODE_DONE_PARTIAL;
 }
 
+
 double NormalizeOpenVolumeFloor(double volume)
 {
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
@@ -2995,7 +2997,8 @@ bool CalculateAutoEnginePotentialSLRisk(string engine,double &money,double &perc
   {unknown++;continue;}
   money+=oneRisk;
  }
- percent=money/balance*100.0; return unknown==0;
+ percent=money/balance*100.0;
+ return unknown==0;
 }
 bool PrecheckEngineAutoRisk(string engine,string side,double volume,double entry,
                             double sl,double capPercent,double &projectedMoney,
@@ -3994,6 +3997,7 @@ bool SendProtectedR2PendingOrder(
       );
 
    ResetLastError();
+
    bool accepted = false;
 
    if(orderType == "BUY_LIMIT")
@@ -4994,6 +4998,7 @@ bool ImprovePositionSL(
 
       return false;
    }
+
    Print(
       "TRADE MANAGER SL MOVED | ticket=",
       ticket,
@@ -5992,6 +5997,7 @@ bool LoadVirtualPerformanceState()
 
    g_perfTrade.entry =
       StringToDouble(FileReadString(handle));
+
    g_perfTrade.sl =
       StringToDouble(FileReadString(handle));
 
@@ -6991,7 +6997,8 @@ void RefreshRealAutoBrokerPerformance()
     (InpLearningLookbackDays<=0 ||
      baskets[i].close_time>=now-(datetime)((long)InpLearningLookbackDays*86400)))
   {
-   if(baskets[i].source=="R1_AUTO")LearnFromBasket(g_learningR1,net);   else if(baskets[i].source=="R2_AUTO")LearnFromBasket(g_learningR2,net);
+   if(baskets[i].source=="R1_AUTO")LearnFromBasket(g_learningR1,net);
+   else if(baskets[i].source=="R2_AUTO")LearnFromBasket(g_learningR2,net);
   }
   if(baskets[i].source=="R1_AUTO")
   {
@@ -7990,7 +7997,8 @@ void DrawDecisionZoneBand(
    }
    else
    {
-      ObjectMove(         0,
+      ObjectMove(
+         0,
          name,
          0,
          leftTime,
@@ -8989,6 +8997,7 @@ bool GetOpenSymbolPositionSummary(string &side)
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0)
          continue;
+
       if(!PositionSelectByTicket(ticket))
          continue;
 
@@ -9988,7 +9997,8 @@ string DashboardZoneText(string side)
    return "R1 ZONE  No valid setup";
 }
 
-string DashboardR1Trigger(string side,bool ready){
+string DashboardR1Trigger(string side,bool ready)
+{
    if(ready)
       return "READY   Entry "+DoubleToString(g_simpleEntry,_Digits)+
              "  |  SL "+DoubleToString(g_simpleSL,_Digits);
@@ -10987,6 +10997,7 @@ void PollDecisionZones()
 
    g_r2TriggerReady =
       r2TriggerReady;
+
    g_buyTriggerCount =
       buyTriggerCount;
 
@@ -11986,7 +11997,8 @@ void PollR2Visuals()
       {
          g_r2WatchBuyLow=JsonGetDouble(watchJson,"watch_buy_low");
          g_r2WatchBuyHigh=JsonGetDouble(watchJson,"watch_buy_high");
-         g_r2WatchSellLow=JsonGetDouble(watchJson,"watch_sell_low");         g_r2WatchSellHigh=JsonGetDouble(watchJson,"watch_sell_high");
+         g_r2WatchSellLow=JsonGetDouble(watchJson,"watch_sell_low");
+         g_r2WatchSellHigh=JsonGetDouble(watchJson,"watch_sell_high");
          g_r2WatchAvailable=
             ValidZone(g_r2WatchBuyLow,g_r2WatchBuyHigh) &&
             ValidZone(g_r2WatchSellLow,g_r2WatchSellHigh);
@@ -12985,7 +12997,8 @@ void ExecuteTrade(
    string side,
    double referenceEntry,
    double lot,
-   double sl,   double tp1,
+   double sl,
+   double tp1,
    double tp2,
    long expiresAt
 )
@@ -13984,7 +13997,8 @@ bool SendCloseEventFromHistory()
                (ENUM_DEAL_REASON)
                HistoryDealGetInteger(
                   ticket,
-                  DEAL_REASON               );
+                  DEAL_REASON
+               );
          }
       }
    }
@@ -14983,6 +14997,7 @@ void CheckPendingTrade()
          (long)
          TimeGMT() *
          1000;
+
       if(
          g_pending.expires_at_ms > 0 &&
          nowMs >
@@ -15982,7 +15997,8 @@ void ReportAutoOpenedDeal(ulong dealTicket)
    }
 
    string orderComment =
-      DealOrderComment(         dealTicket
+      DealOrderComment(
+         dealTicket
       );
 
    string source =
@@ -16981,7 +16997,8 @@ int HttpGet(
          InpTimeoutMs,
          data,
          result,
-         responseHeaders      );
+         responseHeaders
+      );
 
    if(status == -1)
    {
