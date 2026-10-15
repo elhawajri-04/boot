@@ -115,8 +115,8 @@ input double InpMaxSLDistanceUSD = 15.0;
 // SAFETY DEFAULT = OFF. Enable only when you intentionally want unattended live execution.
 // It fills exposure in 0.01-lot chunks until the combined broker-side SL risk reaches
 // (but does not exceed) the configured percentage of current account BALANCE.
-input bool   InpEnableAutoSignalExecutor = false;
-input double InpAutoExecutorMaxSLRiskPercent = 5.0;
+input bool   InpEnableAutoSignalExecutor = true; // DEMO ONLY; R1 enabled for supervised test
+input double InpAutoExecutorMaxSLRiskPercent = 0.5; // Demo R1 reduced max risk
 input double InpAutoExecutorChunkLot = 0.01;
 input int    InpAutoExecutorMaxChunksPerSignal = 100;
 input bool   InpAutoExecutorRequireFlatAtSignal = false;
@@ -151,7 +151,7 @@ input double InpR2PendingMinRR = 1.00;
 input bool   InpR2PendingUseTP2AsFinal = true;
 // Each strategy has its OWN share of account balance.
 input double InpR2AutoMaxSLRiskPercent = 5.0;
-// R1 uses InpAutoExecutorMaxSLRiskPercent (default 5%).
+// R1 uses InpAutoExecutorMaxSLRiskPercent (Demo default 0.5%).
 // Both strategies together must also respect a 10% total XAU risk ceiling.
 // Entry/trading ONLY: 09:00-22:00 by BROKER SERVER clock (Mon-Fri).
 // Analysis, market snapshots, watch zones, R2 swing calculations and
