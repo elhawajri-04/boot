@@ -3140,6 +3140,7 @@ async function handleLatestZones(
   try {
     const regimeData = await calculateRegimeR1(env);
     const marketAgeSeconds = Math.max(0, (Date.now() - regimeData.market.cloud_updated_at) / 1000);
+    const newsGate = regimeData.market.news_gate;
 
     if (marketAgeSeconds > 30) {
       return json({
@@ -3150,6 +3151,10 @@ async function handleLatestZones(
         source: "AUTO_R1_WATCH",
         zones: null,
         reason: "STALE_MARKET",
+        news_gate: newsGate,
+        news_entry_allowed: 0,
+        news_state: "UNKNOWN",
+        news_risk: "UNKNOWN",
         r2_audit_status: "WATCH",
         r2_market_state: "STALE_MARKET",
         r2_strategy: "NONE",
@@ -3174,6 +3179,10 @@ async function handleLatestZones(
       rules_version: RULES_VERSION,
       symbol,
       zones,
+      news_gate: newsGate,
+      news_entry_allowed: newsGate.entry_allowed ? 1 : 0,
+      news_state: newsGate.state,
+      news_risk: newsGate.risk,
 
       // Flat fields are intentional so the lightweight MT5 JSON reader
       // can consume them without a full nested JSON parser.
@@ -3182,12 +3191,13 @@ async function handleLatestZones(
       r2_strategy: r2Audit.strategy,
       r2_order_type: r2Audit.order_type,
       r2_score: r2Audit.score,
-      r2_allowed: r2Audit.allowed ? 1 : 0,
+      r2_allowed: (r2Audit.allowed && newsGate.entry_allowed) ? 1 : 0,
       r2_rr_tp1: r2Audit.rr_tp1,
-      r2_trigger_ready: r2Audit.trigger_ready ? 1 : 0,
+      r2_trigger_ready: (r2Audit.trigger_ready && newsGate.entry_allowed) ? 1 : 0,
       r2_trigger: r2Audit.trigger,
       r2_trigger_count: r2Audit.trigger_count,
-      r2_reason: r2Audit.reason
+      r2_reason: newsGate.entry_allowed ? r2Audit.reason :
+                 "NEWS_" + newsGate.state + "_" + newsGate.reason
     });
   } catch (error) {
     return json({ ok: false, error: String(error?.message || error) }, 500);
