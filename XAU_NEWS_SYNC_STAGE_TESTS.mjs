@@ -27,12 +27,14 @@ function snapshot(risk, permitted) {
 }
 let row = null;
 const db = {
-  prepare() {
+  prepare(sql) {
+    const isMarket = sql.includes("latest_market");
     return {
-      async first() { return row; },
+      async first() { return isMarket ? row : null; },
       bind(...values) { this.values = values; return this; },
       async run() {
-        row = { payload: this.values[0], updated_at: this.values[1] };
+        if (isMarket)
+          row = { payload: this.values[0], updated_at: this.values[1] };
         return { success: true };
       }
     };
@@ -66,6 +68,9 @@ for (const [name, risk, permitted] of [
 ]) {
   const ack = await postMarket(snapshot(risk, permitted));
   record(name + " POST accepted", ack.ok && ack.news_gate.entry_allowed === permitted);
+  if (!permitted)
+    record(name + " auto publisher news gate",
+      ack.auto_r2?.reason?.startsWith("NEWS_BLOCKED_") === true);
   const news = await get("/news/status");
   const latest = await get("/latest");
   record(name + " synchronized news decisions",
