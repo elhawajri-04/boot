@@ -120,7 +120,9 @@ export default {
           ok: true,
           build: BUILD_VERSION,
           rules_version: RULES_VERSION,
-          ...result
+          ...result,
+          news_gate: result.market.news_gate,
+          news_entry_allowed: result.market.news_gate.entry_allowed
         });
       } catch (error) {
         return json(
@@ -199,7 +201,10 @@ export default {
           build: BUILD_VERSION,
           rules_version: R2_RULES_VERSION,
           r1_untouched: true,
-          ...result
+          ...result,
+          news_gate: result.market.news_gate,
+          execution_allowed:
+            Boolean(result.setup?.allowed) && result.market.news_gate.entry_allowed
         });
       } catch (error) {
         return json({ ok: false, error: String(error?.message || error) }, 500);
@@ -216,7 +221,10 @@ export default {
           setup: result.setup,
           market_state: result.market_state,
           selector: result.selector,
-          market: result.market
+          market: result.market,
+          news_gate: result.market.news_gate,
+          execution_allowed:
+            Boolean(result.setup?.allowed) && result.market.news_gate.entry_allowed
         });
       } catch (error) {
         return json({ ok: false, error: String(error?.message || error) }, 500);
@@ -390,6 +398,7 @@ export default {
         enabled: R2_AUTO_SIGNAL_ENABLED,
         status: "disabled"
       };
+      const currentNewsGate = newsGateFromSnapshot(JSON.parse(body), now);
 
       if (R2_AUTO_SIGNAL_ENABLED) {
         try {
@@ -407,6 +416,7 @@ export default {
       return json({
         ok: true,
         updated_at: now,
+        news_gate: currentNewsGate,
         auto_r2: autoR2
       });
     }
@@ -481,6 +491,7 @@ export default {
           marketAgeSeconds !== null &&
           marketAgeSeconds <= 30,
         freshness_limit_seconds: 30,
+        news_gate: newsGateFromSnapshot(market, cloudUpdatedAt, now),
         market
       });
     }
@@ -5112,7 +5123,8 @@ async function calculateRegimeR1(
       cloud_updated_at:
         Number(
           row.updated_at
-        )
+        ),
+      news_gate: newsGateFromSnapshot(market, row.updated_at)
     },
 
     regime,
@@ -5978,6 +5990,15 @@ async function processAutoR2Signal(env) {
   // This analysis still runs regardless of trading hours.
   const result = await calculateR2Swing(env);
   const now = Date.now();
+  const newsGate = result.market?.news_gate || newsGateFromSnapshot(null, null);
+  if (!newsGate.entry_allowed) {
+    return {
+      enabled: true,
+      status: "watch",
+      reason: "NEWS_" + newsGate.state + "_" + newsGate.reason,
+      news_gate: newsGate
+    };
+  }
   const window = r2AutoWindow(result.market);
   if (!window.allowed) {
     return {
@@ -6551,7 +6572,8 @@ async function calculateR2Swing(env) {
     cloud_updated_at: Number(row.updated_at),
     market_age_seconds: roundNumber(Math.max(0, (Date.now() - Number(row.updated_at)) / 1000), 1),
     broker_server_day_of_week: market.broker_server_day_of_week,
-    broker_server_seconds_of_day: market.broker_server_seconds_of_day
+    broker_server_seconds_of_day: market.broker_server_seconds_of_day,
+    news_gate: newsGateFromSnapshot(market, row.updated_at)
   };
 
   const highVol = m15.atr_ratio >= 1.80 || m15.last_range >= m15.atr14 * 2.20;
