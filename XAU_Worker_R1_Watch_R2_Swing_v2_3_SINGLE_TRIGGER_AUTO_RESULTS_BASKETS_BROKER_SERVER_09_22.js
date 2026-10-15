@@ -6130,7 +6130,16 @@ async function processAutoR2Signal(env) {
       };
     }
   } else {
-    ttlSeconds = R2_AUTO_MARKET_TTL_SECONDS;
+    // Market-style auto signals must also die before the broker session
+    // closes; no Worker-originated entry should survive past 22:00.
+    ttlSeconds = Math.min(R2_AUTO_MARKET_TTL_SECONDS, window.remaining);
+    if (ttlSeconds < 5) {
+      return {
+        enabled: true,
+        status: "watch",
+        reason: "SESSION_END_TOO_CLOSE_TO_SEND_AUTO_SIGNAL"
+      };
+    }
   }
 
   const expiresAt = now + ttlSeconds * 1000;
