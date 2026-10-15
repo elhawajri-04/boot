@@ -6232,6 +6232,18 @@ void RefreshRealAutoBrokerPerformance()
   if(kind!=DEAL_TYPE_BUY&&kind!=DEAL_TYPE_SELL)continue;
   long entryType=HistoryDealGetInteger(ticket,DEAL_ENTRY);
 
+  // A manual or foreign-EA entry into the same NETTING position makes
+  // source attribution ambiguous. Exclude that position/basket rather
+  // than crediting manual profit or loss to R1/R2.
+  if(entryType==DEAL_ENTRY_IN)
+  {
+   string entryComment=BrokerRealAutoOpeningComment(ticket);
+   string entrySource=AutoTradeSourceFromComment(entryComment);
+   if(entrySource!=positions[idx].source||
+      !RealAutoOpeningMagicValid(ticket))
+    positions[idx].conflicted=true;
+  }
+
   if(entryType==DEAL_ENTRY_OUT||entryType==DEAL_ENTRY_OUT_BY)
    positions[idx].out_volume+=HistoryDealGetDouble(ticket,DEAL_VOLUME);
   if(entryType==DEAL_ENTRY_INOUT)
@@ -6365,7 +6377,10 @@ void DrawVirtualPerformanceRows()
   " / "+DoubleToString(g_realAutoPerf.r1_net,2)+
   " | R2 "+IntegerToString(g_realAutoPerf.r2_closed)+
   " / "+DoubleToString(g_realAutoPerf.r2_net,2)+
-  " | Active "+IntegerToString(g_realAutoPerf.active),
+  " | Active "+IntegerToString(g_realAutoPerf.active)+
+  (g_realAutoPerf.legacy_legs>0
+   ? " | Legacy legs "+IntegerToString(g_realAutoPerf.legacy_legs)
+   : ""),
   InpPanelMutedColor);
 
  // LEGACY R1 positions without a common basket ID are counted separately.
