@@ -7394,6 +7394,8 @@ void OnTimer()
       DeleteR1WatchReferenceObjects("BUY");
       DeleteR1WatchReferenceObjects("SELL");
    }
+   if(InpDrawR2WatchZones && !R2WatchSnapshotFresh())
+      DeleteR2WatchReferenceObjects();
 
    // --------------------------------------------------------
    // MARKET DATA
@@ -10261,6 +10263,20 @@ void DrawCompactZonePanel()
    DashboardCollectRow(9,"R1 STATUS "+g_simpleWhy,
       ready?InpPanelR1Color:InpPanelMutedColor);
 
+   string r2VisualStatus="R2 WATCH WAIT | "+g_r2WatchSource;
+   if(R2WatchSnapshotFresh())
+      r2VisualStatus="R2 WATCH BUY "+
+         DoubleToString(g_r2WatchBuyLow,_Digits)+"-"+
+         DoubleToString(g_r2WatchBuyHigh,_Digits)+" SELL "+
+         DoubleToString(g_r2WatchSellLow,_Digits)+"-"+
+         DoubleToString(g_r2WatchSellHigh,_Digits);
+   DashboardCollectRow(9,r2VisualStatus,
+      R2WatchSnapshotFresh()?InpPanelR2Color:InpPanelMutedColor);
+   DashboardCollectRow(9,"R2 STATUS "+
+      (g_r2Allowed && g_r2PendingViable ?
+       "PENDING CANDIDATE":"WATCH ONLY / NO ENTRY"),
+      InpPanelMutedColor);
+
    // -------- POSITION MANAGEMENT --------
    DashboardCollectRow(10,"POSITION MANAGEMENT",InpPanelTextColor);
    string managerLabel=InpEnableActiveTradeManager?"ON":"OFF";
@@ -12081,6 +12097,30 @@ void PollR2Visuals()
    if(g_r2PendingOnlyReason=="")
       g_r2PendingOnlyReason="PENDING_NO_DETAIL";
    g_r2LastFreshPollServer=TimeTradeServer();
+
+   // Worker v2.6 swing WATCH fields are not trading candidates.
+   int watchAt=StringFind(response,"\"watch_zones\":{");
+   int selectorAt=StringFind(response,"\"selector\":{",watchAt>=0?watchAt:0);
+   if(watchAt>=0 && selectorAt>watchAt &&
+      StringFind(response,"\"r2_watch_visual_schema\":1")>=0)
+   {
+      string watchJson=StringSubstr(response,watchAt,selectorAt-watchAt);
+      if(StringFind(watchJson,"\"watch_only\":true")>=0 &&
+         StringFind(watchJson,"\"tradable\":false")>=0 &&
+         StringFind(watchJson,"\"available\":true")>=0 &&
+         StringFind(watchJson,"\"source\":\"M30_SWING_M15_ATR\"")>=0)
+      {
+         g_r2WatchBuyLow=JsonGetDouble(watchJson,"watch_buy_low");
+         g_r2WatchBuyHigh=JsonGetDouble(watchJson,"watch_buy_high");
+         g_r2WatchSellLow=JsonGetDouble(watchJson,"watch_sell_low");
+         g_r2WatchSellHigh=JsonGetDouble(watchJson,"watch_sell_high");
+         g_r2WatchAvailable=
+            ValidZone(g_r2WatchBuyLow,g_r2WatchBuyHigh) &&
+            ValidZone(g_r2WatchSellLow,g_r2WatchSellHigh);
+         if(g_r2WatchAvailable)
+            g_r2WatchSource="M30_SWING_M15_ATR";
+      }
+   }
 
    g_r2Strategy =
       JsonGetString(
