@@ -6086,10 +6086,18 @@ async function processAutoR2Signal(env) {
       ? Math.round(expiryHours * 3600)
       : 3600;
 
-    ttlSeconds = Math.max(
-      5,
-      Math.min(R2_AUTO_MAX_PENDING_TTL_SECONDS, ttlSeconds, window.remaining)
+    ttlSeconds = Math.min(
+      R2_AUTO_MAX_PENDING_TTL_SECONDS,
+      ttlSeconds,
+      window.remaining
     );
+    if (ttlSeconds < 5) {
+      return {
+        enabled: true,
+        status: "watch",
+        reason: "SESSION_END_TOO_CLOSE_TO_PLACE_ORDER"
+      };
+    }
   } else {
     ttlSeconds = R2_AUTO_MARKET_TTL_SECONDS;
   }
