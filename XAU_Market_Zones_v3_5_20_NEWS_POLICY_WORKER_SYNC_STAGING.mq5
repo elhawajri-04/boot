@@ -16,8 +16,11 @@ CTrade trade;
 // INPUTS
 // ============================================================
 
+// Replace this with the URL of your ISOLATED staging Worker.
 input string InpWorkerBaseURL =
-   "https://xau-live-bridge.r7ed2015.workers.dev";
+   "https://news-test-worker.example.invalid";
+// When true, never manage, open or cancel broker trades in EA tick/timer.
+input bool InpTelemetryOnlyStagingMode = true;
 
 input string InpWriteToken = "";
 
@@ -109,7 +112,7 @@ input double InpMaxSLDistanceUSD = 15.0;
 // SAFETY DEFAULT = OFF. Enable only when you intentionally want unattended live execution.
 // It fills exposure in 0.01-lot chunks until the combined broker-side SL risk reaches
 // (but does not exceed) the configured percentage of current account BALANCE.
-input bool   InpEnableAutoSignalExecutor = true;
+input bool   InpEnableAutoSignalExecutor = false;
 input double InpAutoExecutorMaxSLRiskPercent = 5.0;
 input double InpAutoExecutorChunkLot = 0.01;
 input int    InpAutoExecutorMaxChunksPerSignal = 100;
@@ -139,7 +142,7 @@ input bool InpEnableLearnedRiskThrottle = false;
 // the chunk rule, account-percent SL-risk cap, expiry, and stale-plan replacement.
 // R2 intentionally ignores the absolute InpMaxSLDistanceUSD filter; wide structural
 // stops are allowed only when broker-calculated total SL risk remains within the cap.
-input bool   InpEnableR2PendingExecutor = true;
+input bool   InpEnableR2PendingExecutor = false;
 input int    InpR2PendingMinScore = 70;
 input double InpR2PendingMinRR = 1.00;
 input bool   InpR2PendingUseTP2AsFinal = true;
@@ -7158,7 +7161,7 @@ void OnDeinit(
    SaveVirtualPerformanceState();
    SaveAutoExecutorState();
 
-   if(InpR2DeletePendingOnDeinit)
+   if(!InpTelemetryOnlyStagingMode && InpR2DeletePendingOnDeinit)
       DeleteR2PendingOrders("EA DEINIT - EXPLICIT");
 
    DeleteDecisionZoneObjects();
@@ -7234,20 +7237,18 @@ void OnTimer()
          now;
    }
 
-   AutoProtectOpenPositions();
-
-   // Enforce the account-balance SL-risk cap only against NEW XAU positions.
-   EnforceMaxSLRiskGuardForNewPosition();
-
-   string managerSideSnapshot = "NONE";
-   GetOpenSymbolPositionSummary(
-      managerSideSnapshot
-   );
-
-   ManageActiveBasketPositions();
-
-   ProcessAutoSignalExecutor();
-   ProcessR2PendingExecutor();
+   // Staging default is telemetry-only: prohibit EA-initiated broker
+   // modifications, deletions, SL/TP management and auto entries.
+   if(!InpTelemetryOnlyStagingMode)
+   {
+      AutoProtectOpenPositions();
+      EnforceMaxSLRiskGuardForNewPosition();
+      string managerSideSnapshot = "NONE";
+      GetOpenSymbolPositionSummary(managerSideSnapshot);
+      ManageActiveBasketPositions();
+      ProcessAutoSignalExecutor();
+      ProcessR2PendingExecutor();
+   }
    // Read-only probe only AFTER management and strategy execution.
    BridgeProbeOne();
    // Virtual/paper tracker intentionally disabled: real broker stats only.
@@ -7265,8 +7266,11 @@ void OnTick()
 {
    CheckZoneEntryAlert();
 
-   ProcessAutoSignalExecutor();
-   ProcessR2PendingExecutor();
+   if(!InpTelemetryOnlyStagingMode)
+   {
+      ProcessAutoSignalExecutor();
+      ProcessR2PendingExecutor();
+   }
    // Virtual/paper tracker intentionally disabled: real broker stats only.
 
    if(InpShowZoneEngineStatus)
