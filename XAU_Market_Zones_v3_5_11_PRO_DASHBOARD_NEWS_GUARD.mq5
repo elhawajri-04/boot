@@ -9121,7 +9121,7 @@ void DrawPanelRow(
       : InpPanelY + 35 + (row - 1) * InpPanelRowHeight;
 
    ObjectSetInteger(0, name, OBJPROP_CORNER, InpPanelCorner);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, InpPanelX + 12);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, InpPanelX + (row==0 ? 14 : 19));
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetInteger(0, name, OBJPROP_FONTSIZE, actualFontSize);
    ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
@@ -9388,9 +9388,13 @@ void DrawCompactZonePanel()
 
    // -------- POSITION MANAGEMENT --------
    DrawPanelRow(10,"POSITION MANAGEMENT",InpPanelTextColor);
+   string managerLabel=InpEnableActiveTradeManager?"ON":"OFF";
+   if(InpEnableActiveTradeManager && g_managerStatus!="" &&
+      g_managerStatus!="OFF" && g_managerStatus!="WAIT")
+      managerLabel=g_managerStatus;
    DrawPanelRow(11,
       "PROTECT "+(InpAutoProtectPositions?"ON":"OFF")+
-      "   |   MANAGER "+(InpEnableActiveTradeManager?"ON":"OFF"),
+      "   |   MANAGER "+managerLabel,
       (InpAutoProtectPositions && InpEnableActiveTradeManager)
       ? InpPanelR1Color:InpPanelWarningColor);
    string mgmt="TP1 "+DoubleToString(InpManagerPartialAtR,1)+"R"+
@@ -9417,6 +9421,10 @@ void DrawCompactZonePanel()
          "   L "+IntegerToString(g_realAutoPerf.losses)+
          "   BE "+IntegerToString(g_realAutoPerf.breakeven)+
          "   WR "+DoubleToString(wr,1)+"%",InpPanelTextColor);
+      if(g_realAutoPerf.legacy_legs>0)
+         ObjectSetString(0,PanelRowName(14),OBJPROP_TOOLTIP,
+            "Real broker history: "+IntegerToString(g_realAutoPerf.legacy_legs)+
+            " old positions have no shared basket ID, so they are counted separately.");
       DrawPanelRow(15,"NET "+DoubleToString(g_realAutoPerf.net,2)+
          " USD   |   PF "+pf+
          "   |   AVG "+DoubleToString(
@@ -9457,8 +9465,10 @@ void DrawCompactZonePanel()
    DrawPanelRow(19,StringSubstr(newsReason,0,68),
       newsBlocked?InpPanelWarningColor:InpPanelMutedColor);
 
-   string next="NEXT USD  No scheduled release found";
-   if(g_newsNextTime>0)
+   string next="NEXT USD  No high-impact event in the feed";
+   if(InpEnableUSDNewsGuard && !g_newsFeedHealthy)
+      next="CALENDAR UNAVAILABLE - check MT5 events feed";
+   else if(g_newsNextTime>0)
       next="NEXT USD (SERVER)  "+
          TimeToString(g_newsNextTime,TIME_MINUTES)+
          "   "+g_newsNextName;
