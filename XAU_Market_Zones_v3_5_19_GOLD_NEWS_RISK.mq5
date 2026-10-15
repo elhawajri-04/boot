@@ -3015,6 +3015,7 @@ bool RefreshNewsCalendar()
   g_newsFeedHealthy=true;
   g_newsFeedStatus="OFF";
   g_newsNextTime=0;
+  g_newsNextBlockingTime=0;
   g_newsBlockUntil=0;
   return true;
  }
@@ -3026,7 +3027,10 @@ bool RefreshNewsCalendar()
  g_newsLastPoll=now;
  g_newsFeedHealthy=false;
  g_newsFeedStatus="CALENDAR UNAVAILABLE";
- g_newsNextTime=0;g_newsNextName="";g_newsBlockUntil=0;g_newsBlockName="";
+ g_newsNextTime=0;g_newsNextName="";g_newsNextRisk="NONE";
+ g_newsNextBlockingTime=0;g_newsNextBlockingPre=0;
+ g_newsBlockUntil=0;g_newsBlockName="";g_newsBlockRisk=0;
+ g_newsAttentionRisk=0;g_newsAttentionName="";
 
  if(MQLInfoInteger(MQL_TESTER))
  {
@@ -3037,11 +3041,16 @@ bool RefreshNewsCalendar()
  MqlCalendarValue values[];
  ResetLastError();
  int n=CalendarValueHistory(values,now-3600,now+48*3600,NULL,"USD");
- if(n<=0)
+ if(n<0)
  {
-  g_newsFeedStatus=n<0?
-    "CALENDAR ERROR "+IntegerToString(GetLastError()):"NO CALENDAR DATA";
+  g_newsFeedStatus="CALENDAR ERROR "+IntegerToString(GetLastError());
   return false;
+ }
+ if(n==0)
+ {
+  g_newsFeedHealthy=true;
+  g_newsFeedStatus="NO USD EVENTS NEXT 48H";
+  return true;
  }
 
  for(int i=0;i<n;i++)
@@ -3053,44 +3062,59 @@ bool RefreshNewsCalendar()
    return false;
   }
 
-  bool hi=ev.importance==CALENDAR_IMPORTANCE_HIGH;
-  bool med=ev.importance==CALENDAR_IMPORTANCE_MODERATE;
-  if(!hi&&!(InpNewsIncludeModerateUSD&&med))continue;
-
+  int level=GoldNewsRisk(ev.name,(int)ev.importance);
+  bool blocking=NewsRiskBlocks(level);
   datetime at=values[i].time;
   if(at<=0)continue;
-
   if(ev.time_mode!=CALENDAR_TIMEMODE_DATETIME)
   {
-   if(hi&&InpNewsBlockUntimedHighUSD)
+   // Without exact release time, do not invent a pending-order deadline.
+   if(blocking && level>=3 && InpNewsBlockUntimedHighUSD)
    {
-    MqlDateTime d,n;
-    TimeToStruct(at,d);TimeToStruct(now,n);
-    if(d.year==n.year&&d.mon==n.mon&&d.day==n.day)
+    MqlDateTime eventDay,today;
+    TimeToStruct(at,eventDay);TimeToStruct(now,today);
+    if(eventDay.year==today.year && eventDay.mon==today.mon &&
+       eventDay.day==today.day && level>=g_newsBlockRisk)
     {
      g_newsBlockUntil=now+3600;
-     g_newsBlockName="UNTIMED USD HIGH: "+ev.name;
+     g_newsBlockName="UNTIMED: "+ev.name;
+     g_newsBlockRisk=level;
     }
    }
    continue;
   }
-
-  int before=hi?InpNewsPreHighMinutes:InpNewsPreModerateMinutes;
-  int after=hi?InpNewsPostHighMinutes:InpNewsPostModerateMinutes;
-  before=MathMax(0,before);after=MathMax(0,after);
-
-  if(at>=now&&(g_newsNextTime==0||at<g_newsNextTime))
+  int before=NewsPre(level);
+  int after=NewsPost(level);
+  if(at>=now && (g_newsNextTime==0 || at<g_newsNextTime))
   {
    g_newsNextTime=at;
    g_newsNextName=ev.name;
+   g_newsNextRisk=NewsRiskLabel(level);
   }
-  if(now>=at-before*60&&now<=at+after*60)
+  if(blocking && at>=now &&
+     (g_newsNextBlockingTime==0 || at<g_newsNextBlockingTime))
   {
-   datetime till=at+after*60;
-   if(till>=g_newsBlockUntil)
+   g_newsNextBlockingTime=at;
+   g_newsNextBlockingPre=before;
+  }
+  // LOW/MEDIUM releases are visible as cautions even if no entry is blocked.
+  int watchBefore=level==1?15:before;
+  int watchAfter=level==1?10:after;
+  if(now>=at-watchBefore*60 && now<=at+watchAfter*60 &&
+     level>g_newsAttentionRisk)
+  {
+   g_newsAttentionRisk=level;
+   g_newsAttentionName=ev.name;
+  }
+  if(blocking && now>=at-before*60 && now<=at+after*60)
+  {
+   datetime until=at+after*60;
+   if(level>g_newsBlockRisk ||
+      (level==g_newsBlockRisk && until>g_newsBlockUntil))
    {
-    g_newsBlockUntil=till;
+    g_newsBlockUntil=until;
     g_newsBlockName=ev.name;
+    g_newsBlockRisk=level;
    }
   }
  }
@@ -3138,38 +3162,42 @@ bool NewsAllowsAutoEntry()
 {
  if(!InpEnableUSDNewsGuard)
  {
-  g_newsStatus="NEWS GUARD OFF";
+  g_newsEntryBlocked=false;g_newsStatus="NEWS GUARD OFF";
   return true;
  }
- bool calendarOK=RefreshNewsCalendar();
+ bool ok=RefreshNewsCalendar();
  DetectSuddenNewsShock();
  datetime now=TimeTradeServer();
-
+ g_newsEntryBlocked=false;
  if(g_newsShockUntil>now)
  {
-  g_newsStatus="NEWS BLOCK: "+g_newsShockReason;
-  return false;
+  g_newsStatus="NEWS BLOCK SHOCK: "+g_newsShockReason;
+  g_newsEntryBlocked=true;
  }
- if(!calendarOK)
+ else if(!ok)
  {
-  g_newsStatus="NEWS UNKNOWN: "+g_newsFeedStatus;
-  return !InpNewsGuardFailClosed;
+  g_newsStatus="NEWS CALENDAR UNKNOWN: "+g_newsFeedStatus;
+  g_newsEntryBlocked=InpNewsGuardFailClosed;
  }
- if(g_newsBlockUntil>now)
+ else if(g_newsBlockUntil>now)
  {
-  g_newsStatus="NEWS BLOCK: "+g_newsBlockName;
-  return false;
+  g_newsStatus="NEWS BLOCK "+NewsRiskLabel(g_newsBlockRisk)+": "+g_newsBlockName;
+  g_newsEntryBlocked=true;
  }
- g_newsStatus="NEWS CLEAR";
- return true;
+ else if(g_newsAttentionRisk==2)
+  g_newsStatus="NEWS CAUTION MEDIUM: "+g_newsAttentionName;
+ else if(g_newsAttentionRisk==1)
+  g_newsStatus="NEWS LOW: "+g_newsAttentionName;
+ else g_newsStatus="NEWS CLEAR";
+ return !g_newsEntryBlocked;
 }
 
 datetime NextNewsPendingDeadline()
 {
- if(!InpEnableUSDNewsGuard || !g_newsFeedHealthy || g_newsNextTime<=0)
-  return 0;
- // Expire a broker pending order before scheduled news even if EA disconnects.
- return g_newsNextTime-MathMax(0,InpNewsPreHighMinutes)*60;
+ if(!InpEnableUSDNewsGuard || !g_newsFeedHealthy ||
+    g_newsNextBlockingTime<=0)return 0;
+ // LOW / nonblocking MEDIUM never shorten the broker-side R2 expiry.
+ return g_newsNextBlockingTime-MathMax(0,g_newsNextBlockingPre)*60;
 }
 
 
