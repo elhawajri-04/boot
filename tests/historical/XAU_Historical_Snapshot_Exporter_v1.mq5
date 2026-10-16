@@ -3,7 +3,7 @@
 #property strict
 input int InpCaptureEverySeconds=60; // use 10 for detailed parity; very large output
 input int InpMaxRows=3000;           // bound exported size per tester run
-input int InpBrokerUtcOffsetMinutes=120; // broker UTC offset for TEST DATE, not Palestine time
+input int InpBrokerUtcOffsetMinutes=9999; // REQUIRED manual broker UTC offset for test date
 input bool InpUseLondonSession=true;
 input string InpOutputFile="XAU_HISTORICAL_SNAPSHOTS_v1.jsonl";
 int fileHandle=INVALID_HANDLE;
@@ -74,6 +74,12 @@ int OnInit()
  }
  if(StringFind(_Symbol,"XAUUSD")<0)return INIT_FAILED;
  if(InpCaptureEverySeconds<1 || InpMaxRows<1)return INIT_PARAMETERS_INCORRECT;
+ if(InpUseLondonSession &&
+    (InpBrokerUtcOffsetMinutes==9999 || MathAbs(InpBrokerUtcOffsetMinutes)>840))
+ {
+   Print("SET InpBrokerUtcOffsetMinutes to the verified historical broker offset before testing.");
+   return INIT_PARAMETERS_INCORRECT;
+ }
  fileHandle=FileOpen(InpOutputFile,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
  if(fileHandle==INVALID_HANDLE)
  {
