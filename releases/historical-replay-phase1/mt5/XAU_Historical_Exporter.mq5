@@ -92,7 +92,7 @@ bool ExportTicks(const datetime fromTime,const datetime toExclusive)
       if(count==0){empty++;continue;}
       for(int i=0;i<count;i++)
       {
-         if(ticks[i].time_msc<first||ticks[i].time_msc>last)continue;
+         if(ticks[i].time_msc<(long)first||ticks[i].time_msc>(long)last)continue;
          FileWrite(f,(long)ticks[i].time_msc,
                    DoubleToString(ticks[i].bid,_Digits),
                    DoubleToString(ticks[i].ask,_Digits),
