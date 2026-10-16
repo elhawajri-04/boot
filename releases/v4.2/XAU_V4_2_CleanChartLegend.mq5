@@ -23,7 +23,6 @@ input string InpWorkerBaseURL =
 // FALSE = R1/R2 execution and position management are permitted by their own
 // inputs, guards, account permissions and broker order validation.
 input bool InpTelemetryOnlyStagingMode = false;
-input bool InpICTSMCObserveOnly = true; // display live ICT/SMC; no new orders until turned off
 input double InpICTSMCMaxMarketDriftUSD = 1.0;
 
 input string InpWriteToken = "";
@@ -4307,7 +4306,6 @@ void ICT4Execute(string engine)
  {
   if(!(r1?InpEnableAutoSignalExecutor:InpEnableR2PendingExecutor))
   {status="OFF | ENGINE";break;}
-  if(InpICTSMCObserveOnly){status="MONITOR | ICT SMC V4";break;}
   bool verified=r1?g_ictR1ModelOK:g_ictR2ModelOK;
   datetime fresh=r1?g_r1LastFreshFeedServer:g_r2LastFreshPollServer;
   if(!verified||fresh<=0||TimeTradeServer()-fresh>
