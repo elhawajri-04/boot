@@ -48,7 +48,7 @@ input bool InpShowCompactPanel = true;
 // Historical performance calculations and tracking continue normally.
 input bool InpShowPerformanceSection = true;
 input bool InpShowManagementSection = false;
-input bool InpShowBridgeSection = false;
+input bool InpShowBridgeSection = true; // show complete verified bridge diagnostics
 // Optional extra diagnostic rows. Main trading rows remain visible.
 input bool InpShowAdvancedSetupDetails = false;
 input bool InpShowAdvancedSafetyDetails = false;
@@ -11674,7 +11674,7 @@ void DrawR2WatchReferenceSide(string side,double low,double high,color tint)
       DeleteR2Object(label);
       return;
    }
-   string tip="R2 WATCH "+side+" | M30 SWING / M15 ATR | NO ENTRY";
+   string tip="R2 ICT/SMC "+side+" | M15 FVG/OB | WATCH ONLY";
    DrawDecisionZoneBand(band,low,high,tint,tip);
    if(ObjectFind(0,band)>=0)
    {
@@ -11685,21 +11685,26 @@ void DrawR2WatchReferenceSide(string side,double low,double high,color tint)
    }
    DrawR2HLine(lowName,low,tint,STYLE_DOT,1,tip);
    DrawR2HLine(highName,high,tint,STYLE_DOT,1,tip);
-   datetime at=TimeCurrent()-20*60;
-   double price=high+MathMax(30*_Point,(high-low)*0.18);
+   // Keep labels apart even when BUY and SELL watch zones overlap in price.
+   // Fixed screen rows are anchored to the upper-right chart corner.
+   if(ObjectFind(0,label)>=0 &&
+      (ENUM_OBJECT)ObjectGetInteger(0,label,OBJPROP_TYPE)!=OBJ_LABEL)
+      ObjectDelete(0,label);
    if(ObjectFind(0,label)<0)
-      ObjectCreate(0,label,OBJ_TEXT,0,at,price);
-   else
-      ObjectMove(0,label,0,at,price);
+      ObjectCreate(0,label,OBJ_LABEL,0,0,0);
    if(ObjectFind(0,label)>=0)
    {
-      ObjectSetString(0,label,OBJPROP_TEXT,"R2 WATCH "+side+" - NO ENTRY");
+      ObjectSetInteger(0,label,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0,label,OBJPROP_ANCHOR,ANCHOR_RIGHT_UPPER);
+      ObjectSetInteger(0,label,OBJPROP_XDISTANCE,115);
+      ObjectSetInteger(0,label,OBJPROP_YDISTANCE,buy?63:88);
+      ObjectSetString(0,label,OBJPROP_TEXT,"R2 "+side+" | FVG/OB WATCH");
       ObjectSetString(0,label,OBJPROP_TOOLTIP,tip);
       ObjectSetInteger(0,label,OBJPROP_COLOR,tint);
-      ObjectSetInteger(0,label,OBJPROP_FONTSIZE,8);
-      ObjectSetInteger(0,label,OBJPROP_ANCHOR,ANCHOR_RIGHT_LOWER);
+      ObjectSetInteger(0,label,OBJPROP_FONTSIZE,9);
       ObjectSetInteger(0,label,OBJPROP_SELECTABLE,false);
-      ObjectSetInteger(0,label,OBJPROP_BACK,true);
+      ObjectSetInteger(0,label,OBJPROP_SELECTED,false);
+      ObjectSetInteger(0,label,OBJPROP_BACK,false);
    }
 }
 void DrawR2WatchReferenceZones()
