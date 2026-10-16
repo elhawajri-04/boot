@@ -1,0 +1,68 @@
+{
+  "phase": "tick_clock_signal_audit_only",
+  "symbol": "XAUUSD.s",
+  "start": 1767657600,
+  "end": 1768262400,
+  "analysis_cadence_seconds": 1,
+  "quote_max_age_ms": 30000,
+  "original_worker_sha256": "6d6a7716288a5fb835608ec224f1ef7bd1b6273b7154c98e436289fbe65a8179",
+  "original_adapter_sha256": "b0b73e69470de5bf40313280a70293532c68276bdcdaf563f56646f15b103571",
+  "src_data_completed": true,
+  "no_orders_sent": true,
+  "no_profitability_calculated": true,
+  "execution_eligible_always_false": true,
+  "news_not_replayed": true,
+  "session_guard_not_replayed": true,
+  "r1_local_swing_sl_not_replayed": true,
+  "r2_pending_lifecycle_not_replayed": true,
+  "comment": "Model checks are refreshed on each M5 close; bid/ask is scanned at configured historical seconds. NOT exact live timers/poll latency.",
+  "counts": {
+    "sampled_seconds": 604800,
+    "quote_stale_or_missing": 191595,
+    "incomplete_bars": 0,
+    "m5_model_refreshes": 1380,
+    "m5_model_confirmed_r1": 0,
+    "m5_model_confirmed_r2": 0,
+    "r1_raw_signal_seconds": 0,
+    "r2_raw_signal_seconds": 0,
+    "r1_unique_signal_setups": 0,
+    "r2_unique_signal_setups": 0,
+    "r2_market_only_filtered_seconds": 0,
+    "htf_bias_by_m5": {
+      "MIXED": 978,
+      "BUY": 282,
+      "SELL": 120
+    },
+    "r1_confirmation_wait_m5": {
+      "WAIT_HTF_BIAS": 978,
+      "WAIT_SWEEP": 315,
+      "WAIT_DISPLACEMENT": 66,
+      "WAIT_BOS_CHOCH": 19,
+      "WATCH_VALUE": 2
+    },
+    "r2_confirmation_wait_m5": {
+      "WAIT_HTF_BIAS": 978,
+      "WATCH_VALUE": 3,
+      "WAIT_SWEEP": 360,
+      "WAIT_DISPLACEMENT": 39
+    },
+    "decision_reasons_seconds": {
+      "R1|NO_FRESH_BID_ASK": 191595,
+      "R2|NO_FRESH_BID_ASK": 191595,
+      "R1|WAIT_HTF_STRUCTURE": 292766,
+      "R2|WAIT_HTF_STRUCTURE": 292766,
+      "R1|WAIT_SWEEP": 85039,
+      "R2|WATCH_VALUE": 900,
+      "R2|WAIT_SWEEP": 102439,
+      "R1|WAIT_DISPLACEMENT": 15000,
+      "R2|WAIT_DISPLACEMENT": 10800,
+      "R1|WAIT_UNMITIGATED_FVG_OB": 14100,
+      "R1|WAIT_BOS_CHOCH": 5700,
+      "R1|WATCH_VALUE": 600,
+      "R2|WAIT_UNMITIGATED_FVG_OB": 6300
+    },
+    "written_rows": 226,
+    "quote_time_from_future": 0
+  },
+  "elapsed_seconds": 12.81
+}
