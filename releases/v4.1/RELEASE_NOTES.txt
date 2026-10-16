@@ -1,0 +1,28 @@
+XAU ICT/SMC V4.1 Visual & R2 Pending Safety
+
+FILES
+XAU_V4_VisualAuto_v4_1.mq5 : MetaTrader 5 Expert Advisor source
+XAU_V4_Worker_v4_1.js : Cloudflare Worker source
+
+CHANGES
+- Added InpMinimalWatchDrawings=true. R1/R2 WATCH zones display outlined rectangles without redundant top/bottom price lines.
+- Distinct trade level line styles: SL dotted, TP dashed, structural invalidation dash-dot, ENTRY original solid.
+- R2 info overlay positioned lower to avoid one-click trading controls.
+- Hard block for any R2 market execution path in ICT4Execute.
+- Worker now announces R2 pending-only protocol consistently and rejects R2 market setups.
+- EA R2 parser now requires pending_only_mode:true.
+- Protected safety settings and R1 M5 swing SL/ATR logic remain unchanged.
+
+IMPORTANT VALIDATION
+- Worker JavaScript passed node --check.
+- MetaEditor compilation was not possible in this environment. Compile MQ5 in MetaEditor and review errors before use.
+- Broker execution and bidirectional link could not be tested against live MT5/Cloudflare credentials here.
+- InpICTSMCObserveOnly remains TRUE as a deliberate safety default. Only turn FALSE on DEMO after both programs are deployed and connection and risk controls confirmed.
+- Do not activate live auto execution without a demo forward test.
+
+DEPLOY SEQUENCE
+1. Upload/deploy Worker JS to staging Cloudflare Worker, verify /health and /r2 pending_only_mode.
+2. Compile and attach EA to MT5 DEMO only, set Worker URL + X-Bridge-Key token and WebRequest allowlist.
+3. Keep InpICTSMCObserveOnly=true during protocol/visual checks.
+4. Verify feeds, age, news gate, R1 and R2 zone freshness and broker stop validation.
+5. On DEMO, set InpICTSMCObserveOnly=false and examine actual broker retcodes, pending order behavior and risk cap.
