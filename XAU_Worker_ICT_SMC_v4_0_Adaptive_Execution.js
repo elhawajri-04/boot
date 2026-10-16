@@ -8527,7 +8527,16 @@ async function calculateR2Swing(env){
   notes:[p.reason||"WAIT","SMC: HTF alignment, sweep, displacement, structure, unfilled value zone"]
  };
  return {...old,market_state:"ICT_SMC_"+preview.htf_bias,
-   setup,selector:{selected_strategy:setup.strategy,selected_order_type:setup.order_type,
+   setup,
+   watch_zones:{
+      source:"ICT_SMC_FVG_OB_M15",watch_only:true,tradable:false,
+      available:Number.isFinite(p.zone_low)&&Number.isFinite(p.zone_high)&&p.zone_high>p.zone_low,
+      watch_buy_low:p.side==="BUY"?p.zone_low:null,
+      watch_buy_high:p.side==="BUY"?p.zone_high:null,
+      watch_sell_low:p.side==="SELL"?p.zone_low:null,
+      watch_sell_high:p.side==="SELL"?p.zone_high:null
+   },
+   selector:{selected_strategy:setup.strategy,selected_order_type:setup.order_type,
       strategy_locked:setup.allowed,minimum_score:70,candidates:[setup]},
    strategy_model:ICTV4_MODEL,smc_preview:{bias:preview.htf_bias,r1:preview.r1.reason,r2:preview.r2.reason}};
 }
