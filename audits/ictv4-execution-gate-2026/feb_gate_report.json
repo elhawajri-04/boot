@@ -1,0 +1,26 @@
+{
+  "symbol": "XAUUSD.s",
+  "start_server_unix": 1769990400,
+  "end_server_unix_exclusive": 1770595200,
+  "worker_sha256": "6d6a7716288a5fb835608ec224f1ef7bd1b6273b7154c98e436289fbe65a8179",
+  "frames": {
+    "M5": {
+      "bars_evaluated": 1380,
+      "bos_events": 152,
+      "bos_with_dealing_value_pass": 0,
+      "bos_breaking_latest_swing": 141,
+      "latest_swing_bos_and_value_pass": 0,
+      "stale_level_bos_with_value_pass": 0,
+      "samples": []
+    },
+    "M15": {
+      "bars_evaluated": 460,
+      "bos_events": 55,
+      "bos_with_dealing_value_pass": 0,
+      "bos_breaking_latest_swing": 52,
+      "latest_swing_bos_and_value_pass": 0,
+      "stale_level_bos_with_value_pass": 0,
+      "samples": []
+    }
+  }
+}
