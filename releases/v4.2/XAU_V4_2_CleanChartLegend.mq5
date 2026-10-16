@@ -313,7 +313,7 @@ input double InpManagerTrailStepR = 0.25;
 input bool InpDrawR2Setup = true;
 input bool InpDrawR2WatchZones = true; // visual only; never trade
 input color InpR2WatchBuyColor = C'187,135,255';
-input color InpR2WatchSellColor = C'255,137,80';
+input color InpR2WatchSellColor = C'255,220,0';
 input int InpR2PollEverySeconds = 5;
 input color InpR2BuyZoneColor = clrDeepSkyBlue;
 input color InpR2SellZoneColor = clrOrangeRed;
@@ -10485,9 +10485,9 @@ void DrawUnifiedChartLegend()
       "R1 WATCH SELL  |  NO ENTRY");
    AppendVisibleLegendObject(rows,tones,R2_WATCH_BUY_BAND,
       "R2 BUY  |  FVG/OB WATCH ONLY");
-   // Display-only: separate R2 SELL legend yellow from the orange R1 watch label.
+   // R2 SELL label matches the actual R2 WATCH SELL band and optional dotted lines.
    if(ObjectFind(0,R2_WATCH_SELL_BAND)>=0)
-      AppendLegendRow(rows,tones,"R2 SELL  |  FVG/OB WATCH ONLY",C'255,220,0');
+      AppendLegendRow(rows,tones,"R2 SELL  |  FVG/OB WATCH ONLY",InpR2WatchSellColor);
    // Live locked zones and structural context.
    AppendVisibleLegendObject(rows,tones,ZONE_BUY_OBJECT,
       "R1 LOCKED BUY ZONE");
