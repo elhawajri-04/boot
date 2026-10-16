@@ -3540,6 +3540,11 @@ void BridgeProbeOne()
 
    if(step==0||step==3)
    {
+      // Strict version and strategy parity: old v2.8 must fail.
+      if(ok && StringFind(response,"\"build\":\"XAU_V4_ICT_SMC_ADAPTIVE_MARKET_PENDING\"")<0)
+      {ok=false;failReason="WRONG_WORKER_BUILD";}
+      if(ok && StringFind(response,"\"strategy_model\":\"ICT_SMC_V4_LIVE\"")<0)
+      {ok=false;failReason="WRONG_ICT_SMC_MODEL";}
       // Check stable capability flags, NOT the build-name string.
       // Worker v2.4 renamed BUILD_VERSION while retaining the same features.
       if(ok && StringFind(response,"\"service\":\"XAU Live Bridge\"")<0)
@@ -3645,7 +3650,15 @@ string BridgeOverall()
    if(InpDrawR2Setup &&
       !BridgeRecent(g_bridgeLastR2OK,MathMax(60,InpR2PollEverySeconds*8)))
       return "R2 RX STALE";
-   return "OK";
+   if(InpDrawDecisionZones && !g_ictR1ModelOK)return "R1 MODEL NOT VERIFIED";
+   if(InpDrawR2Setup && !g_ictR2ModelOK)return "R2 MODEL NOT VERIFIED";
+   if(InpDrawDecisionZones && !R1WatchFeedFresh())return "R1 DATA STALE";
+   if(InpDrawR2Setup &&
+      (g_r2LastFreshPollServer<=0 ||
+       TimeTradeServer()-g_r2LastFreshPollServer>
+       MathMax(20,InpR2PollEverySeconds*4)))
+      return "R2 DATA STALE";
+   return "OK | ICT/SMC V4";
 }
 
 string BridgeStatusUplink()
@@ -10347,7 +10360,7 @@ void DrawCompactZonePanel()
 
    // -------- INTEGRATED BRIDGE MONITOR --------
    string bridgeState=BridgeOverall();
-   color bridgeColor=bridgeState=="OK" ? InpPanelR1Color :
+   color bridgeColor=StringFind(bridgeState,"OK")==0 ? InpPanelR1Color :
       (bridgeState=="OFF" ? InpPanelMutedColor:InpPanelWarningColor);
    DashboardCollectRow(23,"BRIDGE   /   "+bridgeState,bridgeColor);
    DashboardCollectRow(24,BridgeStatusUplink(),InpPanelMutedColor);
@@ -10359,6 +10372,9 @@ void DrawCompactZonePanel()
    DashboardCollectRow(25,"WORKER CLOUD   "+cloudAge+
       "   |   RESULTS "+resultsInfo,InpPanelMutedColor);
    DashboardCollectRow(26,BridgeStatusDownlink(),InpPanelR2Color);
+   DashboardCollectRow(26,"V4 MODEL   R1 "+(g_ictR1ModelOK?"OK":"WAIT")+
+      " | R2 "+(g_ictR2ModelOK?"OK":"WAIT"),
+      (g_ictR1ModelOK&&g_ictR2ModelOK)?InpPanelR1Color:InpPanelWarningColor);
 
    DashboardRenderFullText();
 
