@@ -7,7 +7,9 @@ import {originalWorker,quoteIsValid,cancellationReason,candidateAdmission,examin
 import {buildCommands} from '../scripts/export_causal_commands.mjs';
 const home=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const ea=fs.readFileSync(path.join(home,'mt5','XAU_Phase5_Research_Tester.mq5'),'utf8');
-const worker=process.env.XAU_WORKER||'/mnt/data/XAU_V4_Worker_v4_1.js';
+const repoWorker=path.resolve(home,'../v4.1/XAU_V4_Worker_v4_1.js');
+const worker=process.env.XAU_WORKER||(fs.existsSync(repoWorker)?repoWorker:path.resolve(home,'../../XAU_V4_Worker_v4_1.js'));
+
 
 test('original Worker identity and only validated latest-pivot fix',()=>{
  const o=originalWorker(worker);
