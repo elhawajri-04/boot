@@ -1,0 +1,42 @@
+{
+  "phase": "phase4_latest_confirmed_swing_two_stage_retest_hypothesis",
+  "symbol": "XAUUSD.s",
+  "start": 1767657600,
+  "end": 1768262400,
+  "worker_sha256": "6d6a7716288a5fb835608ec224f1ef7bd1b6273b7154c98e436289fbe65a8179",
+  "adapter_sha256": "78589c92d37969ca31c33fdf023cf7f60576c2e06f2d8232c9b933f43c4a6617",
+  "original_adapter_sha256": "b0b73e69470de5bf40313280a70293532c68276bdcdaf563f56646f15b103571",
+  "swing_fix": "n-3 included (confirmed right=2)",
+  "sampled_seconds": 604800,
+  "source_events": {
+    "R1": 2,
+    "R2": 1
+  },
+  "fully_tradable_value_overlap": {
+    "R1": 2,
+    "R2": 1
+  },
+  "setup_rejected": {},
+  "results": {
+    "R1": {
+      "OBSERVED_ZONE_TOUCH": 2
+    },
+    "R2": {
+      "HTF_CHANGED_OR_MIXED": 1
+    }
+  },
+  "observed_retest": {
+    "R1": 2,
+    "R2": 0
+  },
+  "broker_orders": 0,
+  "fills_simulated": 0,
+  "profitability_calculated": false,
+  "news_verified": false,
+  "session_policy_verified": false,
+  "local_r1_sl_calculated": false,
+  "broker_stops_checked": false,
+  "entry_guaranteed": false,
+  "restrictions": "Original ICTV4 adapter patched ONLY to include newest confirmed swing; retest state machine is NEW RESEARCH logic, not current live Worker; zero fill or money claims.",
+  "total_recorded": 3
+}
