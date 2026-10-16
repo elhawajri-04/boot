@@ -11725,6 +11725,27 @@ void DrawR2WatchReferenceSide(string side,double low,double high,color tint)
 }
 void DrawR2WatchReferenceZones()
 {
+   // Remove orphaned OBJ_TEXT labels from earlier builds once per attach.
+   // The current ICT/SMC labels are OBJ_LABEL with fixed screen positions.
+   static bool legacyWatchCleaned=false;
+   if(!legacyWatchCleaned)
+   {
+      legacyWatchCleaned=true;
+      int cleaned=0;
+      for(int i=ObjectsTotal(0,0,-1)-1;i>=0;i--)
+      {
+         string name=ObjectName(0,i,0,-1);
+         if(name=="")continue;
+         if((ENUM_OBJECT)ObjectGetInteger(0,name,OBJPROP_TYPE)!=OBJ_TEXT)continue;
+         string oldText=ObjectGetString(0,name,OBJPROP_TEXT);
+         if(StringFind(oldText,"R2 WATCH BUY - NO ENTRY")>=0 ||
+            StringFind(oldText,"R2 WATCH SELL - NO ENTRY")>=0)
+         {
+            if(ObjectDelete(0,name))cleaned++;
+         }
+      }
+      if(cleaned>0)Print("ICT/SMC CHART CLEANUP | removed old overlapping R2 WATCH labels=",cleaned);
+   }
    if(!InpDrawR2Setup || !InpDrawR2WatchZones ||
       !R2WatchSnapshotFresh())
    {
