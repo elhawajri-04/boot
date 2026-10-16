@@ -1,0 +1,149 @@
+// ===== ICT/SMC v4 dynamic order executor, embedded into v4 EA =====
+bool ICT4Exposure(string engine)
+{
+ for(int i=PositionsTotal()-1;i>=0;i--)
+ {
+  ulong t=PositionGetTicket(i);
+  if(t==0||!PositionSelectByTicket(t))continue;
+  if(PositionGetString(POSITION_SYMBOL)!=_Symbol ||
+     PositionGetInteger(POSITION_MAGIC)!=InpMagicNumber)continue;
+  if(AutoEngineFromComment(PositionGetString(POSITION_COMMENT))==engine)return true;
+ }
+ for(int i=OrdersTotal()-1;i>=0;i--)
+ {
+  ulong t=OrderGetTicket(i);if(t==0)continue;
+  if(OrderGetString(ORDER_SYMBOL)!=_Symbol ||
+     OrderGetInteger(ORDER_MAGIC)!=InpMagicNumber)continue;
+  if(!IsPendingOrderType((ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)))continue;
+  if(AutoEngineFromComment(OrderGetString(ORDER_COMMENT))==engine)return true;
+ }
+ return false;
+}
+bool ICT4PendingValid(string type,double entry)
+{
+ MqlTick t;if(!SymbolInfoTick(_Symbol,t))return false;
+ double dist=MathMax(_Point*2,(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
+ if(type=="BUY_LIMIT")return entry<t.ask-dist;
+ if(type=="SELL_LIMIT")return entry>t.bid+dist;
+ if(type=="BUY_STOP")return entry>t.ask+dist;
+ if(type=="SELL_STOP")return entry<t.bid-dist;
+ return false;
+}
+bool ICT4Pending(string engine,string type,double lot,double entry,double sl,
+                  double tp,datetime expiry,string basket,string &why)
+{
+ why="";
+ if(!ICT4PendingValid(type,entry)){why="PENDING PRICE INVALID";return false;}
+ if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ||
+    !MQLInfoInteger(MQL_TRADE_ALLOWED) ||
+    !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))
+ {why="AUTOTRADING DISABLED";return false;}
+ lot=NormalizeOpenVolumeFloor(lot);
+ if(lot<=0){why="INVALID LOT";return false;}
+ trade.SetExpertMagicNumber(InpMagicNumber);
+ trade.SetDeviationInPoints(InpMaxDeviationPoints);
+ string prefix=engine=="R1"?"XAU_R1P_":"XAU_R2P_";
+ string label=type=="BUY_LIMIT"?"BUYL":type=="SELL_LIMIT"?"SELLL":
+              type=="BUY_STOP"?"BUYS":"SELLS";
+ string comment=AutoBasketComment(prefix+label,basket);
+ bool sent=false;
+ if(type=="BUY_LIMIT")sent=trade.BuyLimit(lot,entry,_Symbol,sl,tp,ORDER_TIME_SPECIFIED,expiry,comment);
+ else if(type=="SELL_LIMIT")sent=trade.SellLimit(lot,entry,_Symbol,sl,tp,ORDER_TIME_SPECIFIED,expiry,comment);
+ else if(type=="BUY_STOP")sent=trade.BuyStop(lot,entry,_Symbol,sl,tp,ORDER_TIME_SPECIFIED,expiry,comment);
+ else if(type=="SELL_STOP")sent=trade.SellStop(lot,entry,_Symbol,sl,tp,ORDER_TIME_SPECIFIED,expiry,comment);
+ else {why="BAD PENDING TYPE";return false;}
+ if(!sent || !PendingTradeRetcodePlaced())
+ {why="BROKER REJECT "+IntegerToString((long)trade.ResultRetcode());return false;}
+ why="PENDING ACCEPTED";
+ return true;
+}
+void ICT4Execute(string engine)
+{
+ bool r1=engine=="R1";
+ string status="WAIT | ICT SMC V4";
+ do
+ {
+  if(!(r1?InpEnableAutoSignalExecutor:InpEnableR2PendingExecutor))
+  {status="OFF | ENGINE";break;}
+  if(InpICTSMCObserveOnly){status="MONITOR | ICT SMC V4";break;}
+  bool verified=r1?g_ictR1ModelOK:g_ictR2ModelOK;
+  datetime fresh=r1?g_r1LastFreshFeedServer:g_r2LastFreshPollServer;
+  if(!verified||fresh<=0||TimeTradeServer()-fresh>
+     MathMax(10,r1?InpR1MaxFeedAgeSeconds:InpR2PollEverySeconds*4))
+  {status="BLOCK | WORKER MODEL/AGE";break;}
+  if(!NewsAllowsAutoEntry()){status="BLOCK | NEWS";break;}
+  int sessionLeft=0;
+  if(!AutoEntrySessionOpen(sessionLeft)){status="OFF | SESSION";break;}
+  string side=r1?g_ictR1Side:g_r2Side;
+  string type=r1?g_ictR1OrderType:g_r2OrderType;
+  double entry=r1?g_ictR1Entry:g_r2Entry;
+  double sl=r1?g_ictR1SL:g_r2SL;
+  double tp=r1?g_ictR1TP:
+     ((InpR2PendingUseTP2AsFinal&&g_r2TP2>0)?g_r2TP2:g_r2TP1);
+  bool allowed=r1?g_ictR1Allowed:g_r2Allowed;
+  if(!allowed|| (side!="BUY"&&side!="SELL")||
+     (type!=side && type!="BUY_LIMIT"&&type!="SELL_LIMIT"&&
+      type!="BUY_STOP"&&type!="SELL_STOP"))
+  {status="WAIT | NO ICT CONFIRMATION";break;}
+  if(entry<=0||sl<=0||tp<=0){status="BLOCK | INCOMPLETE LEVELS";break;}
+  if(ICT4Exposure(engine)){status="WAIT | ENGINE POSITION/ORDER";break;}
+  MqlTick q;if(!SymbolInfoTick(_Symbol,q)){status="NO TICK";break;}
+  double quote=side=="BUY"?q.ask:q.bid;
+  double realEntry=type==side?quote:entry;
+  if(type==side &&
+     MathAbs(realEntry-entry)>MathMax(_Point*5,InpICTSMCMaxMarketDriftUSD))
+  {status="WAIT | PRICE DRIFT";break;}
+  if(type!=side&&!ICT4PendingValid(type,entry))
+  {status="WAIT | PENDING LEVEL STALE";break;}
+  string why="";
+  if(!ValidateStops(side,realEntry,sl,tp,why))
+  {status="BLOCK | "+why;break;}
+  string setup=r1?g_ictR1SetupKey:
+    g_r2Strategy+"|"+type+"|"+DoubleToString(entry,_Digits)+"|"+
+    DoubleToString(sl,_Digits);
+  if(StringLen(setup)<5){status="BLOCK | INVALID SETUP KEY";break;}
+  string basket=AutoBasketHashId(engine,setup);
+  string used="ICT4_"+IntegerToString((long)AccountInfoInteger(ACCOUNT_LOGIN))+
+              "_"+engine+"_"+basket;
+  if(GlobalVariableCheck(used)){status="DONE | ALREADY EXECUTED";break;}
+  double cap=r1?EffectiveAutoRiskCapPercent()*LearningFactor("R1"):
+    MathMax(0.0,InpR2AutoMaxSLRiskPercent)*LearningFactor("R2");
+  if(InpEnableMaxSLRiskGuard&&InpMaxSLRiskPercent>0)
+     cap=MathMin(cap,InpMaxSLRiskPercent);
+  double lot=0,projected=0;
+  if(!CalculateSingleRiskSizedLot(engine,side,realEntry,sl,cap,lot,projected,why))
+  {status="BLOCK | "+why;break;}
+  bool accepted=false;
+  if(type==side)
+  {
+   string cm=engine=="R1"?"XAU_AUTO_"+side:"XAU_R2P_"+side+"M";
+   accepted=SendProtectedMarketOrder(side,lot,sl,tp,
+               AutoBasketComment(cm,basket),why);
+  }
+  else
+  {
+   int ttl=MathMin(r1?3600:21600,sessionLeft);
+   datetime expiry=TimeTradeServer()+(datetime)MathMax(0,ttl);
+   datetime newsCut=NextNewsPendingDeadline();
+   if(newsCut>0&&newsCut<expiry)expiry=newsCut;
+   if(expiry>TimeTradeServer()+30)
+     accepted=ICT4Pending(engine,type,lot,entry,sl,tp,expiry,basket,why);
+   else why="PENDING EXPIRES AT SESSION/NEWS";
+  }
+  if(accepted)
+  {
+   GlobalVariableSet(used,(double)TimeTradeServer());
+   status=(type==side?"OPEN ":"ARMED ")+type+" 1x"+DoubleToString(lot,2);
+   AuditEvent(engine,"EXECUTED",type,"ICT_SMC_V4",0,entry,sl,tp);
+  }
+  else status="REJECT | "+why;
+ }while(false);
+ if(r1)g_autoExecutionStatus=status;
+ else g_r2PendingExecutionStatus=status;
+}
+void ProcessICT4Executors()
+{
+ ICT4Execute("R1");
+ ICT4Execute("R2");
+}
+// ===== end ICT/SMC v4 executor =====
