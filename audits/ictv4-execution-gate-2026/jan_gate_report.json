@@ -1,0 +1,35 @@
+{
+  "symbol": "XAUUSD.s",
+  "start_server_unix": 1767657600,
+  "end_server_unix_exclusive": 1768262400,
+  "worker_sha256": "6d6a7716288a5fb835608ec224f1ef7bd1b6273b7154c98e436289fbe65a8179",
+  "frames": {
+    "M5": {
+      "bars_evaluated": 1380,
+      "bos_events": 162,
+      "bos_with_dealing_value_pass": 1,
+      "bos_breaking_latest_swing": 150,
+      "latest_swing_bos_and_value_pass": 0,
+      "stale_level_bos_with_value_pass": 1,
+      "samples": [
+        {
+          "time_server": 1767762600,
+          "direction": "BUY",
+          "close": 4476.04,
+          "broken_pivot": 4475.71,
+          "newest_confirmed_pivot": 4478.79,
+          "equilibrium": 4476.344999999999
+        }
+      ]
+    },
+    "M15": {
+      "bars_evaluated": 460,
+      "bos_events": 49,
+      "bos_with_dealing_value_pass": 0,
+      "bos_breaking_latest_swing": 47,
+      "latest_swing_bos_and_value_pass": 0,
+      "stale_level_bos_with_value_pass": 0,
+      "samples": []
+    }
+  }
+}
