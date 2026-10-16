@@ -33,7 +33,7 @@ Each replay was 604,800 **seconds**, reading the original Worker V4.1 ICT/SMC ad
 Use the folder containing all seven `xau_<prefix>_*.csv` exporter files, with correct actual dates in metadata.
 
 ```sh
-node scripts/phase5_replay.mjs --worker ../XAU_V4_Worker_v4_1.js --dir /path/to/export --prefix xau_20250106 --out results/jan_events.csv
+node scripts/phase5_replay.mjs --worker ../v4.1/XAU_V4_Worker_v4_1.js --dir /path/to/export --prefix xau_20250106 --out results/jan_events.csv
 node scripts/export_causal_commands.mjs results/jan_events.csv results/jan_commands.csv
 node --test tests/phase5.test.mjs
 ```
