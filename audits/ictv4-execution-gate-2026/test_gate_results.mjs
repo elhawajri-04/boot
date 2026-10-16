@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const jan=JSON.parse(fs.readFileSync(new URL('./jan_gate_report.json',import.meta.url),'utf8'));
+const feb=JSON.parse(fs.readFileSync(new URL('./feb_gate_report.json',import.meta.url),'utf8'));
+assert.equal(jan.worker_sha256,'6d6a7716288a5fb835608ec224f1ef7bd1b6273b7154c98e436289fbe65a8179');
+assert.equal(feb.worker_sha256,jan.worker_sha256);
+const items=[jan.frames.M5,jan.frames.M15,feb.frames.M5,feb.frames.M15];
+const sum=k=>items.reduce((n,x)=>n+x[k],0);
+assert.equal(sum('bos_events'),418);
+assert.equal(sum('bos_with_dealing_value_pass'),1);
+assert.equal(sum('bos_breaking_latest_swing'),390);
+assert.equal(sum('latest_swing_bos_and_value_pass'),0);
+assert.equal(sum('stale_level_bos_with_value_pass'),1);
+const example=jan.frames.M5.samples[0];
+assert.equal(example.direction,'BUY');
+assert.ok(example.close>example.broken_pivot);
+assert.ok(example.close<example.newest_confirmed_pivot);
+console.log('PASS: 418 reported BOS; 1 value-pass breaks stale (not latest) pivot; ZERO actual latest-pivot BOS plus discount/premium same candle.');
