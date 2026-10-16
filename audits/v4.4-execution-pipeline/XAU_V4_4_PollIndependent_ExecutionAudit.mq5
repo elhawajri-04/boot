@@ -22,7 +22,7 @@ input string InpWorkerBaseURL =
    "https://xau-live-bridge.r7ed2015.workers.dev";
 // FALSE = R1/R2 execution and position management are permitted by their own
 // inputs, guards, account permissions and broker order validation.
-input bool InpTelemetryOnlyStagingMode = false;
+input bool InpTelemetryOnlyStagingMode = true; // Research diagnostic defaults to NO broker execution
 input double InpICTSMCMaxMarketDriftUSD = 1.0;
 
 input string InpWriteToken = "";
@@ -7740,8 +7740,9 @@ void OnTimer()
       ManageActiveBasketPositions();
       ProcessICT4R2PendingLifecycle();
       ProcessICT4Executors();
-      ICT4LogExecutionPipeline();
    }
+   // Always print diagnostic pipeline, even when telemetry-only is enabled.
+   ICT4LogExecutionPipeline();
    // Read-only probe only AFTER management and strategy execution.
    BridgeProbeOne();
    // Virtual/paper tracker intentionally disabled: real broker stats only.
