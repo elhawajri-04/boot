@@ -8477,6 +8477,13 @@ function ictV4SidePlan(snapshot,model,tf,seconds){
   technical_reason:base.reason||"WATCH"
  };
 }
+function ictV4WatchZones(snapshot,tf,seconds){
+ const t=Number(snapshot.generated_at);
+ const a=ICTV4.analyzeTF(snapshot[tf],t,seconds);
+ if(!a.ready)return {buy:null,sell:null};
+ return {buy:ICTV4.fvg(a.bars,"BUY",35)||ICTV4.orderBlock(a.bars,{...a.displacement,direction:"BUY"}),
+         sell:ICTV4.fvg(a.bars,"SELL",35)||ICTV4.orderBlock(a.bars,{...a.displacement,direction:"SELL"})};
+}
 async function calculateRegimeR1(env){
  const old=await calculateLegacyRegimeR1(env);
  const {market}=await ictV4Raw(env);
@@ -8485,18 +8492,22 @@ async function calculateRegimeR1(env){
  return {...old,regime:"ICT_SMC_"+smc.htf_bias,
          strategy:plan.allowed?"ICT_SMC_"+plan.side:"ICT_SMC_WAIT",
          regime_score:plan.score,smc,ict_r1_plan:plan,
+         ict_watch:ictV4WatchZones(market,"M5",300),
          rules_version:"ICT_SMC_V4"};
 }
 function calculateAutoDecisionZonesR1(regimeData){
  const p=regimeData.ict_r1_plan||{allowed:false,reason:"NO_ICT_SMC_PLAN"};
  const active=Boolean(p.allowed),buy=p.side==="BUY",sell=p.side==="SELL";
+ const watch=regimeData.ict_watch||{};
+ const bz=buy&&Number.isFinite(p.zone_low)?{low:p.zone_low,high:p.zone_high}:watch.buy;
+ const sz=sell&&Number.isFinite(p.zone_low)?{low:p.zone_low,high:p.zone_high}:watch.sell;
  // WATCH still shows technically meaningful FVG/OB bands while entry is blocked.
  return {
    analysis_id:"ICTSMC4_"+(p.side||"NONE")+"_"+String(p.zone_id||"WAIT"),
    updated_at:Date.now(),source:"ICT_SMC_V4",zone_type:active?"ICT_SMC_CONFIRMED":"WATCH_ICT_SMC",
    watch_only:!active,watch_reason:p.reason||"WAIT",
-   buy_low:buy?p.zone_low:null,buy_high:buy?p.zone_high:null,
-   sell_low:sell?p.zone_low:null,sell_high:sell?p.zone_high:null,
+   buy_low:bz?.low??null,buy_high:bz?.high??null,
+   sell_low:sz?.low??null,sell_high:sz?.high??null,
    buy_invalidation:buy?p.invalidation:null,sell_invalidation:sell?p.invalidation:null,
    buy_invalidation_tf:buy?"M5":null,sell_invalidation_tf:sell?"M5":null,
    buy_invalidation_rule:buy?"M5_CLOSE_BELOW":null,
@@ -8514,6 +8525,7 @@ async function calculateR2Swing(env){
  const {market}=await ictV4Raw(env);
  const preview=ICTV4.previewSnapshot(market);
  const p=ictV4SidePlan(market,preview,"M15",900);
+ const watch=ictV4WatchZones(market,"M15",900);
  const setup={
   allowed:!!p.allowed,pending_only_mode:false,pending_viable:!!p.allowed,
   pending_only_reason:p.reason,model:ICTV4_MODEL,
@@ -8530,11 +8542,11 @@ async function calculateR2Swing(env){
    setup,
    watch_zones:{
       source:"ICT_SMC_FVG_OB_M15",watch_only:true,tradable:false,
-      available:Number.isFinite(p.zone_low)&&Number.isFinite(p.zone_high)&&p.zone_high>p.zone_low,
-      watch_buy_low:p.side==="BUY"?p.zone_low:null,
-      watch_buy_high:p.side==="BUY"?p.zone_high:null,
-      watch_sell_low:p.side==="SELL"?p.zone_low:null,
-      watch_sell_high:p.side==="SELL"?p.zone_high:null
+      available:Boolean(watch.buy||watch.sell),
+      watch_buy_low:watch.buy?.low??null,
+      watch_buy_high:watch.buy?.high??null,
+      watch_sell_low:watch.sell?.low??null,
+      watch_sell_high:watch.sell?.high??null
    },
    selector:{selected_strategy:setup.strategy,selected_order_type:setup.order_type,
       strategy_locked:setup.allowed,minimum_score:70,candidates:[setup]},
