@@ -10485,8 +10485,9 @@ void DrawUnifiedChartLegend()
       "R1 WATCH SELL  |  NO ENTRY");
    AppendVisibleLegendObject(rows,tones,R2_WATCH_BUY_BAND,
       "R2 BUY  |  FVG/OB WATCH ONLY");
-   AppendVisibleLegendObject(rows,tones,R2_WATCH_SELL_BAND,
-      "R2 SELL  |  FVG/OB WATCH ONLY");
+   // Display-only: separate R2 SELL legend yellow from the orange R1 watch label.
+   if(ObjectFind(0,R2_WATCH_SELL_BAND)>=0)
+      AppendLegendRow(rows,tones,"R2 SELL  |  FVG/OB WATCH ONLY",C'255,220,0');
    // Live locked zones and structural context.
    AppendVisibleLegendObject(rows,tones,ZONE_BUY_OBJECT,
       "R1 LOCKED BUY ZONE");
