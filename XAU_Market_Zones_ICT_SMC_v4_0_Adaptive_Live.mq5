@@ -7544,6 +7544,7 @@ int BaseZoneStrengthScore(bool buy)
    string analysisId = ZoneAnalysisIdForSide(buy);
    string zoneType = ZoneTypeForSide(buy);
 
+   if(StringFind(analysisId,"ICTSMC4_")==0)return 85;
    if(StringFind(analysisId, "BREAKOUT_RETEST_BUY") >= 0)
       return buy ? 86 : 68;
 
@@ -7723,6 +7724,8 @@ string BaseZoneReason(bool buy)
    string analysisId = ZoneAnalysisIdForSide(buy);
    string zoneType = ZoneTypeForSide(buy);
 
+   if(StringFind(analysisId,"ICTSMC4_")==0)
+      return "ICT SMC FVG/OB structural zone";
    if(StringFind(analysisId, "BREAKOUT_RETEST_BUY") >= 0)
    {
       return buy
@@ -12074,17 +12077,17 @@ void PollR2Visuals()
       if(StringFind(watchJson,"\"watch_only\":true")>=0 &&
          StringFind(watchJson,"\"tradable\":false")>=0 &&
          StringFind(watchJson,"\"available\":true")>=0 &&
-         StringFind(watchJson,"\"source\":\"M30_SWING_M15_ATR\"")>=0)
+         StringFind(watchJson,"\"source\":\"ICT_SMC_FVG_OB_M15\"")>=0)
       {
          g_r2WatchBuyLow=JsonGetDouble(watchJson,"watch_buy_low");
          g_r2WatchBuyHigh=JsonGetDouble(watchJson,"watch_buy_high");
          g_r2WatchSellLow=JsonGetDouble(watchJson,"watch_sell_low");
          g_r2WatchSellHigh=JsonGetDouble(watchJson,"watch_sell_high");
          g_r2WatchAvailable=
-            ValidZone(g_r2WatchBuyLow,g_r2WatchBuyHigh) &&
+            ValidZone(g_r2WatchBuyLow,g_r2WatchBuyHigh) ||
             ValidZone(g_r2WatchSellLow,g_r2WatchSellHigh);
          if(g_r2WatchAvailable)
-            g_r2WatchSource="M30_SWING_M15_ATR";
+            g_r2WatchSource="ICT_SMC_FVG_OB_M15";
       }
    }
 
