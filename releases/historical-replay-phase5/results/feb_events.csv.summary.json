@@ -1,0 +1,44 @@
+{
+  "phase": "phase5_parallel_zone_retest_research",
+  "symbol": "XAUUSD.s",
+  "start": 1769990400,
+  "end": 1770595200,
+  "worker_sha256": "6d6a7716288a5fb835608ec224f1ef7bd1b6273b7154c98e436289fbe65a8179",
+  "adapter_sha256": "78589c92d37969ca31c33fdf023cf7f60576c2e06f2d8232c9b933f43c4a6617",
+  "original_adapter_sha256": "b0b73e69470de5bf40313280a70293532c68276bdcdaf563f56646f15b103571",
+  "swing_fix": "n-3 included (confirmed right=2)",
+  "sampled_seconds": 604800,
+  "source_events": {
+    "R1": 3,
+    "R2": 0
+  },
+  "fully_tradable_value_overlap": {
+    "R1": 3,
+    "R2": 0
+  },
+  "setup_rejected": {},
+  "results": {
+    "R1": {
+      "OBSERVED_ZONE_TOUCH": 3
+    },
+    "R2": {}
+  },
+  "observed_retest": {
+    "R1": 3,
+    "R2": 0
+  },
+  "peak_concurrent": {
+    "R1": 1,
+    "R2": 0
+  },
+  "broker_orders": 0,
+  "fills_simulated": 0,
+  "profitability_calculated": false,
+  "news_verified": false,
+  "session_policy_verified": false,
+  "local_r1_sl_calculated": false,
+  "broker_stops_checked": false,
+  "entry_guaranteed": false,
+  "restrictions": "Research-only. Original ICTV4 adapter patched ONLY for newest confirmed swing; multi-zone/HTF policy is research logic, not live Worker. No fills or monetary results.",
+  "total_recorded": 3
+}
