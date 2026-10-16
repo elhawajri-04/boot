@@ -46,7 +46,7 @@ input bool InpShowR2TradeLevels = true; // R2 trade levels visible even with cle
 input bool InpShowCompactPanel = true;
 // DISPLAY ONLY: set false to hide the broker-real PERFORMANCE card.
 // Historical performance calculations and tracking continue normally.
-input bool InpShowPerformanceSection = false;
+input bool InpShowPerformanceSection = true;
 input bool InpShowManagementSection = false;
 input bool InpShowBridgeSection = false;
 // Optional extra diagnostic rows. Main trading rows remain visible.
@@ -4256,7 +4256,7 @@ bool ICT4Pending(string engine,string type,double lot,double entry,double sl,
  if(lot<=0){why="INVALID LOT";return false;}
  trade.SetExpertMagicNumber(InpMagicNumber);
  trade.SetDeviationInPoints(InpMaxDeviationPoints);
- string prefix=engine=="R1"?"XAU_R1P_":"XAU_R2P_";
+ string prefix=engine=="R1"?"XAU_R1P_I4":"XAU_R2P_I4";
  string label=type=="BUY_LIMIT"?"BUYL":type=="SELL_LIMIT"?"SELLL":
               type=="BUY_STOP"?"BUYS":"SELLS";
  string comment=AutoBasketComment(prefix+label,basket);
@@ -4330,7 +4330,7 @@ void ICT4Execute(string engine)
   bool accepted=false;
   if(type==side)
   {
-   string cm=engine=="R1"?"XAU_AUTO_"+side:"XAU_R2P_"+side+"M";
+   string cm=engine=="R1"?"XAU_AUTO_I4"+side:"XAU_R2P_I4"+side+"M";
    accepted=SendProtectedMarketOrder(side,lot,sl,tp,
                AutoBasketComment(cm,basket),why);
   }
@@ -7079,7 +7079,7 @@ void DrawVirtualPerformanceRows()
  // No g_perfWins/g_perfLosses, simulated trades, or Worker paper stats.
  RefreshRealAutoBrokerPerformance();
 
- DrawPanelRow(14,"PERFORMANCE | REAL BROKER AUTO",InpPanelWaitColor);
+ DrawPanelRow(14,"PERFORMANCE | REAL BROKER AUTO (ALL BUILDS)",InpPanelWaitColor);
  if(!g_realAutoPerfAvailable)
  {
   DrawPanelRow(15,"BROKER HISTORY UNAVAILABLE",InpPanelSellColor);
