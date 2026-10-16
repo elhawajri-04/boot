@@ -9196,6 +9196,15 @@ void BuildSimpleDecision(bool ignoreOpenPositions = false)
       g_simpleTP=g_ictR1TP;
       return;
    }
+   // No classical strategy fallback when the v4 Worker is missing.
+   g_simpleDecision="WAIT";
+   g_simpleDecisionSide="NONE";
+   g_simpleConfirmText="ICT/SMC WORKER REQUIRED";
+   g_simpleWhy="WAIT | ICT V4 MODEL NOT VERIFIED";
+   g_simpleEntry=0.0;
+   g_simpleSL=0.0;
+   g_simpleTP=0.0;
+   return;
    g_simpleDecision = "WAIT";
    g_simpleDecisionSide = "NONE";
    g_simpleConfirmText = "NONE";
