@@ -1,9 +1,9 @@
-// XAU Market Zones Engine v4.4 ICT SMC ADAPTIVE SMART EXEC D2
+// XAU Market Zones Engine v4.4 ICT SMC ADAPTIVE SMART EXEC E
 // Supports R1 independent entries and R2 Smart Market/Limit/Stop execution when confirmed.
 // It may automatically attach SL/TP protection to open XAU positions when enabled.
 // Sends multi-timeframe market snapshots to the Worker, draws locked zones,
 // visualizes readiness, manages protection for existing positions,
-// and paper-tracks READY-quality signals for live performance statistics.
+// and reports actual broker execution results for R1/R2.
 
 #property strict
 
