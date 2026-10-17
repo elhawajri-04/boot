@@ -7426,6 +7426,9 @@ void DrawVirtualPerformanceRows()
 
 int OnInit()
 {
+   Print("XAU RELEASE | EXEC_PIPELINE_20261017_B | R1/R2 POLL INDEPENDENT | telemetry_only=",
+      InpTelemetryOnlyStagingMode?"TRUE":"FALSE",
+      " | WorkerURL=",InpWorkerBaseURL);
    // Real accounts are permitted, but risk, news and broker guards remain.
    if(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL)
       Print("REAL ACCOUNT MODE | R1/R2 AUTO ENABLED SUBJECT TO TRADE GUARDS");
