@@ -8421,8 +8421,15 @@ function previewSnapshot(snapshot){
  const h1=analyzeTF(snapshot.H1,t,3600);
  const m30=analyzeTF(snapshot.M30,t,1800);
  const bias=h1.ready&&m30.ready&&h1.bias===m30.bias?h1.bias:"MIXED";
+ // Diagnostics only: identify which HTF blocked the common R1/R2 trend.
+ const htf_detail={
+  h1_bias:h1.ready?h1.bias:"NO_DATA",
+  m30_bias:m30.ready?m30.bias:"NO_DATA",
+  h1_closed:h1.ready?h1.bars.length:h1.bars,
+  m30_closed:m30.ready?m30.bars.length:m30.bars
+ };
  return {model:"ICT_SMC_V4_RESEARCH",
-   htf_bias:bias,
+   htf_bias:bias,htf_detail,
    r1:previewSetup(snapshot,"M5",300,bias),
    r2:previewSetup(snapshot,"M15",900,bias),
    not_live:true};
@@ -8443,7 +8450,15 @@ async function ictV4Raw(env){
 function ictV4SidePlan(snapshot,model,tf,seconds){
  const t=Number(snapshot.generated_at),analysis=ICTV4.analyzeTF(snapshot[tf],t,seconds);
  const side=model.htf_bias;
- if(!analysis.ready||!["BUY","SELL"].includes(side))return {allowed:false,reason:"WAIT_HTF_STRUCTURE"};
+ if(!analysis.ready)
+   return {allowed:false,reason:"WAIT_LOCAL_CLOSED_BARS_"+tf+"_"+analysis.bars};
+ if(!["BUY","SELL"].includes(side)){
+  const d=model.htf_detail||{};
+  const h1=String(d.h1_bias||"UNKNOWN"),m30=String(d.m30_bias||"UNKNOWN");
+  return {allowed:false,
+   reason:"WAIT_HTF_STRUCTURE_H1_"+h1+"_M30_"+m30+
+     "_BARS_"+String(d.h1_closed??0)+"_"+String(d.m30_closed??0)};
+ }
  const base=model[tf==="M5"?"r1":"r2"]||{};
  // Use the SAME zone validated by the confluence gate for execution.
  const zone=base.allowed && base.zone?base.zone:
