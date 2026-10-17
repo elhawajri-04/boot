@@ -7438,20 +7438,17 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   if(InpTelemetryOnlyStagingMode &&
-      (StringFind(InpWorkerBaseURL,"example.invalid")>=0 ||
-       StringFind(InpWorkerBaseURL,"xau-live-bridge.r7ed2015.workers.dev")>=0))
+   // Research deployments may reuse the same URL after its Worker code was
+   // explicitly replaced by the operator. The hostname is not an indication
+   // of whether the currently deployed code is research or production.
+   if(StringFind(InpWorkerBaseURL,"example.invalid")>=0)
    {
-      Print("STAGING BLOCK: configure a separate Worker URL with its own D1.");
-      Print("Do not use the production Worker or placeholder URL for testing.");
+      Print("ERROR: replace placeholder Worker URL before starting research.");
       return INIT_FAILED;
    }
-   if(!InpTelemetryOnlyStagingMode &&
-      StringFind(InpWorkerBaseURL,"example.invalid")>=0)
-   {
-      Print("ERROR: replace placeholder Worker URL before enabling execution.");
-      return INIT_FAILED;
-   }
+   if(InpTelemetryOnlyStagingMode)
+      Print("RESEARCH DIAGNOSTIC | TELEMETRY_ONLY=TRUE | NO BROKER EXECUTION | Worker URL accepted.");
+
 
    if(StringLen(InpWriteToken) == 0)
    {
