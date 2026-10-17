@@ -3342,10 +3342,29 @@ function buildR2AuditSnapshot(result, r1Zones) {
       ? roundNumber(rrRaw, 3)
       : 0;
 
-  // Preserve the original strict R2 "allowed" flag for the auto-signal
-  // engine. The lighter READY trigger below is for zone monitoring/manual
-  // decision support only.
   const setupAllowed = !!setup.allowed;
+  // The ICT V4 Smart Worker already confirmed the M15 structure and ordered
+  // sweep/displacement/BOS/zone. Do not apply the obsolete independent
+  // R1-zone + pending-only audit on top of a valid R2 SMART Market setup.
+  if (setup.smart_execution_mode === true) {
+    const marketType = ["BUY", "SELL"].includes(orderType);
+    const pendingType = ["BUY_LIMIT","SELL_LIMIT","BUY_STOP","SELL_STOP"].includes(orderType);
+    const validDirection = side === "BUY" ? orderType.startsWith("BUY") :
+      side === "SELL" ? orderType.startsWith("SELL") : false;
+    const ready = setupAllowed && validDirection && (marketType || pendingType) &&
+      score >= R2_AUTO_MIN_SCORE && rrTp1 >= R2_TRIGGER_MIN_RR;
+    return {
+      status: ready ? "READY" : "WATCH",
+      market_state: clean(result?.market_state || "UNKNOWN"),
+      strategy, order_type: orderType, score,
+      allowed: ready, rr_tp1: rrTp1,
+      trigger_ready: ready,
+      trigger: ready ? (marketType ? "ICT_SMC_MARKET" : "ICT_SMC_PENDING") : "NONE",
+      trigger_count: ready ? 1 : 0,
+      confirmations: ready ? ["M15_CLOSED_BAR_CONFLUENCE"] : [],
+      reason: clean(setup.execution_reason || (ready ? "ICT_SMC_CONFIRMED" : "NO_SMART_R2_SETUP"))
+    };
+  }
 
   let status = "WATCH";
   let reason = "NO_R2_CANDIDATE";
@@ -8632,4 +8651,5 @@ async function calculateR2Swing(env){
 export { r2Candidate as __testR2Candidate,
          r2PendingPlacementCheck as __testPendingPlacement,
          ICTV4 as __testICTV4,
-         ictV4SidePlan as __testIctV4SidePlan };
+         ictV4SidePlan as __testIctV4SidePlan,
+         buildR2AuditSnapshot as __testSmartR2Audit };
