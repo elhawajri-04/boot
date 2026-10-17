@@ -1,3 +1,21 @@
+# Current unified XAU release — 2026-10-17 B
+
+**Current EA file:** [XAU_V4_4_ExecutionPipeline_Research.mq5](./XAU_V4_4_ExecutionPipeline_Research.mq5)  
+**Current Worker file:** [XAU_Worker_ICTV4_Research_ValueRetest.js](./XAU_Worker_ICTV4_Research_ValueRetest.js)
+
+This is the **latest project version**; historical versions remain in GitHub. It is not yet MT5-compiled or forward-tested as a pair. All code updates are committed to the current branch, not deployed to the user's MT5 or Cloudflare automatically.
+
+- The EA prints `XAU RELEASE | EXEC_PIPELINE_20261017_B` on start.
+- Telemetry-only mode defaults TRUE in source and should be TRUE in MT5 Inputs for verification. Expect `RESEARCH DIAGNOSTIC | TELEMETRY_ONLY=TRUE` and `ICT4 PIPELINE | ... telemetry_only=TRUE`. It will not send trades in this mode.
+- The EA accepts the existing Worker URL, even when it previously hosted production and the user replaced its code; placeholder `example.invalid` remains blocked.
+- Deploying Worker source on Cloudflare **requires a separate explicit deploy**; GitHub updates alone do not change a deployed Worker. The same Cloudflare hostname may be used when the operator intentionally replaced the old Worker code.
+- The Worker preserves H1/M30 strict structural agreement. It now reports `WAIT_HTF_STRUCTURE_H1_<BIAS>_M30_<BIAS>_BARS_<COUNT>_<COUNT>` in both R1 and R2 pending reasons, revealing why no READY state was produced. Other gates remain unchanged, including R1 local confirmed M5 swing SL with ATR buffer and R2 Pending Only.
+- When market is closed, `OFF | SESSION` is expected, and repeated `WAIT_HTF_STRUCTURE` should **not** be interpreted as a failed open-market trading test.
+- Verify source in MetaEditor F7 = 0 errors; then confirm EA exact release marker in Experts. Verify the new Worker reason appears after Cloudflare deployment, then inspect R1 and R2 real-session readiness and broker orders (only when explicitly allowing demo execution).
+- There is no claim of increased trade count, execution success or profitability from the diagnostic-only change.
+
+---
+
 # XAU Live R1/R2 execution path audit — independent research, not deployed
 
 ## Root causes confirmed from V4.4 EA + ICTV4 Worker v4.1 source
