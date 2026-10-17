@@ -7426,7 +7426,7 @@ void DrawVirtualPerformanceRows()
 
 int OnInit()
 {
-   Print("XAU RELEASE | EXEC_PIPELINE_20261017_B | R1/R2 POLL INDEPENDENT | telemetry_only=",
+   Print("XAU RELEASE | EXEC_PIPELINE_20261017_C | R1/R2 POLL INDEPENDENT | telemetry_only=",
       InpTelemetryOnlyStagingMode?"TRUE":"FALSE",
       " | WorkerURL=",InpWorkerBaseURL);
    // Real accounts are permitted, but risk, news and broker guards remain.
