@@ -8310,16 +8310,20 @@ function structuralBias(bars,swings){
  if(hi[1].price<hi[0].price && lo[1].price<lo[0].price)return "SELL";
  return "MIXED";
 }
-function breakOfStructure(bars,swings,bias){
+function breakOfStructure(bars,swings,bias,lookback=1){
  const n=bars.length;if(n<7)return null;
- const last=bars[n-1],prev=bars[n-2],events=[];
- const high=swings.highs.filter(x=>x.index<=n-3).at(-1);
- const low=swings.lows.filter(x=>x.index<=n-3).at(-1);
- if(high && prev.c<=high.price && last.c>high.price)
-  events.push({type:bias==="SELL"?"CHOCH":"BOS",direction:"BUY",level:high.price,t:last.t});
- if(low && prev.c>=low.price && last.c<low.price)
-  events.push({type:bias==="BUY"?"CHOCH":"BOS",direction:"SELL",level:low.price,t:last.t});
- return events[0]||null;
+ // Bounded recency: closed-bar BOS/CHOCH may await an FVG/OB retest.
+ // A pivot is eligible only if confirmed by the event's own candle.
+ for(let i=n-1;i>=Math.max(6,n-Math.max(1,lookback));i--){
+  const last=bars[i],prev=bars[i-1];
+  const high=swings.highs.filter(x=>x.index<=i-3).at(-1);
+  const low=swings.lows.filter(x=>x.index<=i-3).at(-1);
+  if(high && prev.c<=high.price && last.c>high.price)
+   return {type:bias==="SELL"?"CHOCH":"BOS",direction:"BUY",level:high.price,t:last.t,index:i};
+  if(low && prev.c>=low.price && last.c<low.price)
+   return {type:bias==="BUY"?"CHOCH":"BOS",direction:"SELL",level:low.price,t:last.t,index:i};
+ }
+ return null;
 }
 function sweep(bars,swings,lookback=8){
  const base=atr(bars)||0,events=[];
@@ -8341,6 +8345,18 @@ function displacement(bars,lookback=6){
   const b=bars[i],body=Math.abs(b.c-b.o),range=b.h-b.l;
   if(body>=0.65*a && range>0 && body/range>=0.65)
    return {index:i,t:b.t,direction:b.c>b.o?"BUY":"SELL",atr:a,body,range};
+ }
+ return null;
+}
+function displacementInSequence(bars,fromIndex,toIndex,dir){
+ // All candles are closed: sweep < displacement <= BOS/CHOCH.
+ const a=atr(bars);
+ if(!(a>0)||fromIndex<0||toIndex<=fromIndex||toIndex>=bars.length)return null;
+ for(let i=toIndex;i>fromIndex;i--){
+  const b=bars[i],body=Math.abs(b.c-b.o),range=b.h-b.l;
+  if((dir==="BUY"&&b.c<=b.o)||(dir==="SELL"&&b.c>=b.o))continue;
+  if(body>=0.65*a && range>0 && body/range>=0.65)
+   return {index:i,t:b.t,direction:dir,atr:a,body,range};
  }
  return null;
 }
@@ -8400,42 +8416,49 @@ function previewSetup(snapshot,timeframe,seconds,htfBias){
  if(!s.ready)return {allowed:false,reason:"NO_DATA"};
  if(htfBias!=="BUY"&&htfBias!=="SELL")return {allowed:false,reason:"WAIT_HTF_BIAS"};
  if(!s.sweep || s.sweep.direction!==htfBias)return {allowed:false,reason:"WAIT_SWEEP"};
- if(!s.displacement || s.displacement.direction!==htfBias ||
-    s.displacement.index<=s.sweep.index)return {allowed:false,reason:"WAIT_DISPLACEMENT"};
- if(!s.break || s.break.direction!==htfBias)return {allowed:false,reason:"WAIT_BOS_CHOCH"};
- const gap=fvg(s.bars,htfBias);
- const block=orderBlock(s.bars,s.displacement);
- if(!gap && !block)return {allowed:false,reason:"WAIT_FVG_OB"};
- // Check value of the return ZONE rather than the breakout-candle close.
- // Broker pending order rests at the zone; BOS confirms the setup, not its fill.
+ const breakout=breakOfStructure(s.bars,s.swings,s.bias,timeframe==="M5"?4:3);
+ if(!breakout || breakout.direction!==htfBias)return {allowed:false,reason:"WAIT_BOS_CHOCH"};
+ if(breakout.index<=s.sweep.index)return {allowed:false,reason:"WAIT_EVENT_SEQUENCE"};
+ const impulse=displacementInSequence(s.bars,s.sweep.index,breakout.index,htfBias);
+ if(!impulse)return {allowed:false,reason:"WAIT_DISPLACEMENT_SEQUENCE"};
+ const latestGap=fvg(s.bars,htfBias);
+ const gap=latestGap && latestGap.index>=s.sweep.index?latestGap:null;
+ const candidateBlock=orderBlock(s.bars,impulse);
+ const block=candidateBlock && candidateBlock.index>=s.sweep.index-3?candidateBlock:null;
+ if(!gap && !block)return {allowed:false,reason:"WAIT_FVG_OB_SEQUENCE"};
  const zone=gap||block;
  if(!s.value)return {allowed:false,reason:"WAIT_DEALING_RANGE"};
  const valueOK=htfBias==="BUY"?zone.low<=s.value.equilibrium:zone.high>=s.value.equilibrium;
  if(!valueOK)return {allowed:false,reason:"WATCH_VALUE",zone};
  return {allowed:true,reason:"ICT_SMC_CONFLUENCE",direction:htfBias,
-         structure:s.break.type,zone,low:zone.low,high:zone.high,distal:zone.distal,
-         sweep:s.sweep,displacement:s.displacement};
+         structure:breakout.type,zone,low:zone.low,high:zone.high,distal:zone.distal,
+         sweep:s.sweep,displacement:impulse,breakout};
 }
 function previewSnapshot(snapshot){
  const t=Number(snapshot.generated_at);
  const h1=analyzeTF(snapshot.H1,t,3600);
  const m30=analyzeTF(snapshot.M30,t,1800);
- const bias=h1.ready&&m30.ready&&h1.bias===m30.bias?h1.bias:"MIXED";
- // Diagnostics only: identify which HTF blocked the common R1/R2 trend.
+ const h1Bias=h1.ready?h1.bias:"NO_DATA";
+ const m30Bias=m30.ready?m30.bias:"NO_DATA";
+ // R1 scalp: M30 direction and separate M5 sequence; H1 disagreement is
+ // flagged and scored lower, but is not a common veto for both engines.
+ const r1Bias=h1.ready && ["BUY","SELL"].includes(m30Bias)?m30Bias:"MIXED";
+ // R2 swing: strictly require H1 and M30 trend agreement.
+ const r2Bias=["BUY","SELL"].includes(h1Bias)&&h1Bias===m30Bias?h1Bias:"MIXED";
  const htf_detail={
-  h1_bias:h1.ready?h1.bias:"NO_DATA",
-  m30_bias:m30.ready?m30.bias:"NO_DATA",
+  h1_bias:h1Bias,m30_bias:m30Bias,
   h1_closed:h1.ready?h1.bars.length:h1.bars,
-  m30_closed:m30.ready?m30.bars.length:m30.bars
+  m30_closed:m30.ready?m30.bars.length:m30.bars,
+  r1_counter_h1:["BUY","SELL"].includes(h1Bias)&&r1Bias!==h1Bias&&r1Bias!=="MIXED",
+  r1_policy:"M30_WITH_M5_CONFLUENCE",r2_policy:"H1_M30_ALIGNMENT"
  };
  return {model:"ICT_SMC_V4_RESEARCH",
-   htf_bias:bias,htf_detail,
-   r1:previewSetup(snapshot,"M5",300,bias),
-   r2:previewSetup(snapshot,"M15",900,bias),
+   htf_bias:r2Bias,r1_bias:r1Bias,r2_bias:r2Bias,htf_detail,
+   r1:previewSetup(snapshot,"M5",300,r1Bias),
+   r2:previewSetup(snapshot,"M15",900,r2Bias),
    not_live:true};
 }
-
-return {previewSnapshot,analyzeTF,fvg,orderBlock,pivots,sweep,atr,displacement};
+return {previewSnapshot,analyzeTF,fvg,orderBlock,pivots,sweep,atr,displacement,breakOfStructure,displacementInSequence};
 })();
 const ICTV4_MODEL="ICT_SMC_V4_LIVE";
 async function ictV4Raw(env){
@@ -8449,18 +8472,17 @@ async function ictV4Raw(env){
 }
 function ictV4SidePlan(snapshot,model,tf,seconds){
  const t=Number(snapshot.generated_at),analysis=ICTV4.analyzeTF(snapshot[tf],t,seconds);
- const side=model.htf_bias;
+ const isR1=tf==="M5",side=isR1?model.r1_bias:model.r2_bias;
  if(!analysis.ready)
-   return {allowed:false,reason:"WAIT_LOCAL_CLOSED_BARS_"+tf+"_"+analysis.bars};
+  return {allowed:false,reason:"WAIT_LOCAL_CLOSED_BARS_"+tf+"_"+analysis.bars};
  if(!["BUY","SELL"].includes(side)){
   const d=model.htf_detail||{};
   const h1=String(d.h1_bias||"UNKNOWN"),m30=String(d.m30_bias||"UNKNOWN");
-  return {allowed:false,
-   reason:"WAIT_HTF_STRUCTURE_H1_"+h1+"_M30_"+m30+
-     "_BARS_"+String(d.h1_closed??0)+"_"+String(d.m30_closed??0)};
+  return {allowed:false,reason:(isR1?"WAIT_R1_M30_CONTEXT_":"WAIT_R2_HTF_ALIGNMENT_")+
+   "H1_"+h1+"_M30_"+m30+"_BARS_"+String(d.h1_closed??0)+"_"+String(d.m30_closed??0)};
  }
- const base=model[tf==="M5"?"r1":"r2"]||{};
- // Use the SAME zone validated by the confluence gate for execution.
+ const base=model[isR1?"r1":"r2"]||{};
+ // The executable plan MUST use the same confluence-validated zone.
  const zone=base.allowed && base.zone?base.zone:
    (ICTV4.fvg(analysis.bars,side,35) || ICTV4.orderBlock(analysis.bars,analysis.displacement));
  if(!zone)return {allowed:false,reason:"WAIT_UNMITIGATED_FVG_OB",side};
@@ -8483,18 +8505,20 @@ function ictV4SidePlan(snapshot,model,tf,seconds){
  const structurallyReady=Boolean(base.allowed) && ["BUY","SELL"].includes(side);
  const correctValueZone=Number.isFinite(valueLow)&&Number.isFinite(valueHigh)&&valueHigh-valueLow>=point;
  const allowed=structurallyReady&&correctValueZone&&orderType!=="NONE"&&risk>Math.max(point*8,0);
+ const counterH1=isR1 && Boolean(model.htf_detail?.r1_counter_h1);
  const tp=side==="BUY"?entry+1.6*risk:entry-1.6*risk;
  const tp2=side==="BUY"?entry+2.2*risk:entry-2.2*risk;
  return {
   allowed,reason:!structurallyReady?(base.reason||"WAIT_ICT_SMC_CONFLUENCE"):
-   !correctValueZone?"WAIT_VALUE_ZONE_OVERLAP":orderType==="NONE"?"WAIT_VALID_EXECUTION_PRICE":allowed?"ICT_SMC_CONFIRMED":"INVALID_SL_RISK",
-  model:ICTV4_MODEL,side,order_type:allowed?orderType:"NONE",
+   !correctValueZone?"WAIT_VALUE_ZONE_OVERLAP":orderType==="NONE"?"WAIT_VALID_EXECUTION_PRICE":
+    allowed?(counterH1?"ICT_SMC_CONFIRMED_COUNTER_H1":"ICT_SMC_CONFIRMED"):"INVALID_SL_RISK",
+  model:ICTV4_MODEL,side,order_type:allowed?orderType:"NONE",counter_h1:counterH1,
   entry:allowed?Math.round(entry*100)/100:null,
   sl:allowed?Math.round(stop*100)/100:null,
   tp1:allowed?Math.round(tp*100)/100:null,
   tp2:allowed?Math.round(tp2*100)/100:null,
   zone_low:zone.low,zone_high:zone.high,invalidation:zone.distal,
-  rr:1.6,score:allowed?85:0,expiry_hours:tf==="M5"?1:6,
+  rr:1.6,score:allowed?(counterH1?75:85):0,expiry_hours:isR1?1:6,
   latest_closed_bar:signalBar.t,zone_id:zone.t,
   technical_reason:base.reason||"WATCH"
  };
@@ -8511,7 +8535,7 @@ async function calculateRegimeR1(env){
  const {market}=await ictV4Raw(env);
  const smc=ICTV4.previewSnapshot(market);
  const plan=ictV4SidePlan(market,smc,"M5",300);
- return {...old,regime:"ICT_SMC_"+smc.htf_bias,
+ return {...old,regime:"ICT_SMC_"+smc.r1_bias,
          strategy:plan.allowed?"ICT_SMC_"+plan.side:"ICT_SMC_WAIT",
          regime_score:plan.score,smc,ict_r1_plan:plan,
          ict_watch:ictV4WatchZones(market,"M5",300),
