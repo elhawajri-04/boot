@@ -7,7 +7,7 @@ const R2_AUTO_SIGNAL_ENABLED = false;
 const R2_AUTO_MIN_SCORE = 70;
 const R2_TRIGGER_MIN_SCORE = 75;
 const R2_TRIGGER_MIN_RR = 1.20;
-const R2_PENDING_ONLY_MODE = true; // Never publish market-style R2 signals
+const R2_PENDING_ONLY_MODE = false; // R2 SMART: confirmed Market, Limit or Stop
 const R2_AUTO_MAX_PENDING_TTL_SECONDS = 43200;
 
 
@@ -209,7 +209,8 @@ export default {
           rules_version: R2_RULES_VERSION,
           r1_untouched: false,
           strategy_model: "ICT_SMC_V4_LIVE",
-          pending_only_mode: true,
+          pending_only_mode: false,
+          smart_execution_mode: true,
           strategy_model: "ICT_SMC_V4_LIVE",
           r2_watch_visual_schema: 1,
           ...result,
@@ -229,7 +230,8 @@ export default {
           ok: true,
           build: BUILD_VERSION,
           rules_version: R2_RULES_VERSION,
-          pending_only_mode: true,
+          pending_only_mode: false,
+          smart_execution_mode: true,
           strategy_model: "ICT_SMC_V4_LIVE",
           r2_watch_visual_schema: 1,
           watch_zones: result.watch_zones,
@@ -3172,7 +3174,7 @@ async function handleLatestZones(
         news_state: "UNKNOWN",
         news_risk: "UNKNOWN",
         r2_audit_status: "WATCH",
-        r2_pending_only_mode: 1,
+        r2_pending_only_mode: 0,
         strategy_model: "ICT_SMC_V4_LIVE",
         r2_market_state: "STALE_MARKET",
         r2_strategy: "NONE",
@@ -3206,8 +3208,10 @@ async function handleLatestZones(
       // Flat fields are intentional so the lightweight MT5 JSON reader
       // can consume them without a full nested JSON parser.
       r2_audit_status: r2Audit.status,
-      r2_pending_only_mode: 1,
+      r2_pending_only_mode: 0,
       r2_pending_viable: r2Result.setup?.pending_viable ? 1 : 0,
+       r2_market_viable: r2Result.setup?.market_viable ? 1 : 0,
+       r2_smart_execution_mode: 1,
       r2_pending_reason: r2Result.setup?.pending_only_reason || "NONE",
       r2_market_state: r2Audit.market_state,
       r2_strategy: r2Audit.strategy,
@@ -3220,7 +3224,7 @@ async function handleLatestZones(
       r2_trigger_count: r2Audit.trigger_count,
       r2_reason: newsGate.entry_allowed ?
             (r2Audit.allowed ? r2Audit.reason :
-             (r2Result.setup?.pending_only_reason || r2Audit.reason)) :
+             (r2Result.setup?.execution_reason || r2Audit.reason)) :
                  "NEWS_" + newsGate.state + "_" + newsGate.reason
     });
   } catch (error) {
@@ -8499,6 +8503,18 @@ function ictV4SidePlan(snapshot,model,tf,seconds){
  const confirming=side==="BUY"?signalBar.c>signalBar.o:signalBar.c<signalBar.o;
  let orderType="NONE",entry=0;
  if(atZone&&confirming){orderType=side;entry=price;}
+ else if(!isR1&&atZone){
+  // M15 close has not confirmed; place a broker STOP above/below the
+  // last CLOSED M15 candle to await renewed price momentum.
+  const triggerBuffer=Math.max(point*5,(analysis.atr||0)*.03);
+  if(side==="BUY"){
+   const breakoutEntry=signalBar.h+triggerBuffer;
+   if(breakoutEntry>ask+point*2){orderType="BUY_STOP";entry=breakoutEntry;}
+  }else{
+   const breakoutEntry=signalBar.l-triggerBuffer;
+   if(breakoutEntry<bid-point*2){orderType="SELL_STOP";entry=breakoutEntry;}
+  }
+ }
  else if(side==="BUY"&&ask>valueHigh+point*2){orderType="BUY_LIMIT";entry=valueHigh;}
  else if(side==="SELL"&&bid<valueLow-point*2){orderType="SELL_LIMIT";entry=valueLow;}
  const risk=Math.abs(entry-stop);
@@ -8513,6 +8529,9 @@ function ictV4SidePlan(snapshot,model,tf,seconds){
    !correctValueZone?"WAIT_VALUE_ZONE_OVERLAP":orderType==="NONE"?"WAIT_VALID_EXECUTION_PRICE":
     allowed?(counterH1?"ICT_SMC_CONFIRMED_COUNTER_H1":"ICT_SMC_CONFIRMED"):"INVALID_SL_RISK",
   model:ICTV4_MODEL,side,order_type:allowed?orderType:"NONE",counter_h1:counterH1,
+  // Stable event identity even when price or order type changes.
+  setup_key:allowed?("SMC4_"+tf+"_"+side+"_"+String(base.breakout?.t||"NA")+
+    "_"+String(zone.t)):"",
   entry:allowed?Math.round(entry*100)/100:null,
   sl:allowed?Math.round(stop*100)/100:null,
   tp1:allowed?Math.round(tp*100)/100:null,
@@ -8572,21 +8591,26 @@ async function calculateR2Swing(env){
  const preview=ICTV4.previewSnapshot(market);
  const p=ictV4SidePlan(market,preview,"M15",900);
  const watch=ictV4WatchZones(market,"M15",900);
- const pendingType = ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"].includes(p.order_type);
- const pendingApproved = Boolean(p.allowed) && pendingType;
- const pendingReason = pendingApproved ? p.reason :
-   p.order_type === "BUY" || p.order_type === "SELL" ? "R2_MARKET_REJECTED_PENDING_ONLY" : p.reason;
+ const pendingType=["BUY_LIMIT","SELL_LIMIT","BUY_STOP","SELL_STOP"].includes(p.order_type);
+ const marketType=["BUY","SELL"].includes(p.order_type);
+ const smartApproved=Boolean(p.allowed) && (pendingType||marketType);
+ const pendingApproved=smartApproved&&pendingType;
+ const marketApproved=smartApproved&&marketType;
+ const reason=smartApproved?p.reason:(p.reason||"R2_NO_CONFIRMED_SMART_SETUP");
  const setup={
-  allowed:pendingApproved,pending_only_mode:true,pending_viable:pendingApproved,
-  pending_only_reason:pendingReason,model:ICTV4_MODEL,
-  strategy:pendingApproved?"ICT_SMC_FVG_OB_"+p.side:"NONE",
-  side:p.side||null,order_type:pendingApproved?p.order_type:"NONE",
+  allowed:smartApproved,pending_only_mode:false,smart_execution_mode:true,
+  execution_mode:marketApproved?"MARKET":pendingApproved?"PENDING":"WAIT",
+  pending_viable:pendingApproved,market_viable:marketApproved,
+  pending_only_reason:reason,execution_reason:reason,model:ICTV4_MODEL,
+  strategy:smartApproved?"ICT_SMC_FVG_OB_"+p.side:"NONE",
+  side:p.side||null,order_type:smartApproved?p.order_type:"NONE",
+  setup_key:smartApproved?p.setup_key:"",
   score:p.score||0,setup_score:p.score||0,
   entry:p.entry,sl:p.sl,tp1:p.tp1,tp2:p.tp2,
   rr_tp1:p.rr||0,expiry_hours:p.expiry_hours||0,
   zone_low:p.zone_low??null,zone_high:p.zone_high??null,
   invalidation:p.invalidation??null,breakout_level:null,
-  notes:[pendingReason||"WAIT","R2 pending-only: broker market orders are prohibited"]
+  notes:[reason||"WAIT","R2 SMART: confirmed Market, Limit or Stop; broker gates apply"]
  };
  return {...old,market_state:"ICT_SMC_"+preview.htf_bias,
    setup,
