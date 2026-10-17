@@ -1,18 +1,29 @@
-# Current unified XAU release — 2026-10-17 B
+# Current unified XAU release — 2026-10-17 C
 
-**Current EA file:** [XAU_V4_4_ExecutionPipeline_Research.mq5](./XAU_V4_4_ExecutionPipeline_Research.mq5)  
-**Current Worker file:** [XAU_Worker_ICTV4_Research_ValueRetest.js](./XAU_Worker_ICTV4_Research_ValueRetest.js)
+**Current EA:** [XAU_V4_4_ExecutionPipeline_Research.mq5](./XAU_V4_4_ExecutionPipeline_Research.mq5)  
+**Current Worker:** [XAU_Worker_ICTV4_Research_ValueRetest.js](./XAU_Worker_ICTV4_Research_ValueRetest.js)  
+**Repeatable tests:** [XAU_Worker_ICTV4_ReleaseC_Regression.mjs](./XAU_Worker_ICTV4_ReleaseC_Regression.mjs)
 
-This is the **latest project version**; historical versions remain in GitHub. It is not yet MT5-compiled or forward-tested as a pair. All code updates are committed to the current branch, not deployed to the user's MT5 or Cloudflare automatically.
+This is the latest project version, superseding release B. Prior commits remain available for rollback. The EA and Worker have been updated in GitHub **but are not automatically installed in MT5 or deployed to Cloudflare**.
 
-- The EA prints `XAU RELEASE | EXEC_PIPELINE_20261017_B` on start.
-- Telemetry-only mode defaults TRUE in source and should be TRUE in MT5 Inputs for verification. Expect `RESEARCH DIAGNOSTIC | TELEMETRY_ONLY=TRUE` and `ICT4 PIPELINE | ... telemetry_only=TRUE`. It will not send trades in this mode.
-- The EA accepts the existing Worker URL, even when it previously hosted production and the user replaced its code; placeholder `example.invalid` remains blocked.
-- Deploying Worker source on Cloudflare **requires a separate explicit deploy**; GitHub updates alone do not change a deployed Worker. The same Cloudflare hostname may be used when the operator intentionally replaced the old Worker code.
-- The Worker preserves H1/M30 strict structural agreement. It now reports `WAIT_HTF_STRUCTURE_H1_<BIAS>_M30_<BIAS>_BARS_<COUNT>_<COUNT>` in both R1 and R2 pending reasons, revealing why no READY state was produced. Other gates remain unchanged, including R1 local confirmed M5 swing SL with ATR buffer and R2 Pending Only.
-- When market is closed, `OFF | SESSION` is expected, and repeated `WAIT_HTF_STRUCTURE` should **not** be interpreted as a failed open-market trading test.
-- Verify source in MetaEditor F7 = 0 errors; then confirm EA exact release marker in Experts. Verify the new Worker reason appears after Cloudflare deployment, then inspect R1 and R2 real-session readiness and broker orders (only when explicitly allowing demo execution).
-- There is no claim of increased trade count, execution success or profitability from the diagnostic-only change.
+## Release C — key changes
+
+- **R1 scalping:** derive directional context from **M30**, confirm on **M5** using sweep, bullish/bearish displacement, structure break, suitable unmitigated FVG/OB and discount/premium retest zone. H1 direction disagreement no longer blocks R1 automatically, but the setup is flagged as `counter_h1` and scored **75** vs **85** for aligned R1.
+- **R2 swing:** continue to require H1 and M30 structural agreement and **pending-only** orders; H1/M30 disagreement still correctly blocks R2.
+- **Event chronology and bounded retest window:** the break event must fall in last **4 closed M5 bars** for R1 or **3 closed M15 bars** for R2, with `sweep.index < displacement.index <= break.index`, and a relevant zone. These are algorithmic windows for testing; not a proven optimized parameterization.
+- **MT5 release marker:** `XAU RELEASE | EXEC_PIPELINE_20261017_C` is printed by the EA on startup; `ICT4 PIPELINE` should confirm R1 and R2 model OK once market data is updated.
+- **Run** `node XAU_Worker_ICTV4_ReleaseC_Regression.mjs` from this directory to verify 7 deterministic Worker tests. The same 7 cases were executed against the updated source via the code environment; the entire Worker source passed JavaScript parser validation. MT5 MetaEditor compilation and end-to-end demo forward testing remain user-side, not yet confirmed for this release.
+- **Default `InpTelemetryOnlyStagingMode=true`:** keeps broker execution disabled until readiness diagnostics and pending validity are observed. Reusing the existing Cloudflare Worker hostname is allowed if the user deployed the new Worker code there. `example.invalid` is still blocked.
+- **Risk and orders:** R1 M5 local-swing stop protection, max risk guards, session checks, duplicate setup protection and R2 Pending Only retained in source. No trading-performance guarantee.
+
+## Next validation
+
+1. Compile the EA in MetaEditor (F7, require zero errors) and confirm `EXEC_PIPELINE_20261017_C` on startup.
+2. Deploy the updated Worker source to the *existing* Cloudflare Worker; updating GitHub alone is not deployment.
+3. With telemetry-only **TRUE**, inspect R1 and R2 `reason=` statuses. A valid disagreement may now produce R1 `WAIT_SWEEP` or `WAIT_BOS_CHOCH` while R2 produces `WAIT_R2_HTF_ALIGNMENT_H1_BUY_M30_SELL...`; this means directional policy is separated but no R1 confluence yet.
+4. Test live market snapshots when XAUUSD.s is open. Simulated previews and closed-weekend snapshots do not demonstrate actual readiness or broker order acceptance.
+5. Only after confirming the EA/Worker pair and broker-safe order handling, explicitly enable execution for demo forward validation.
+
 
 ---
 
