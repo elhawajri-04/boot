@@ -170,7 +170,8 @@ input bool InpEnableLearnedRiskThrottle = false;
 // orders and filled positions are not consolidated or modified on upgrade.
 // R1 and R2 have no arbitrary SL price-distance ceiling. Both still
 // require broker-valid stops and broker-calculated SL risk within account caps.
-input bool   InpEnableR2PendingExecutor = true; // Pending only
+input bool   InpEnableR2PendingExecutor = true; // R2 SMART master, old name retained
+input bool   InpR2EnableMarketExecution = true; // Allow confirmed R2 Market as well as Pending
 input int    InpR2FailedPlanRetrySeconds = 30; // avoid repeated broker rejections
 input int    InpR2PendingMinScore = 70;
 input double InpR2PendingMinRR = 1.00;
@@ -489,6 +490,10 @@ double g_ictR1Entry=0.0,g_ictR1SL=0.0,g_ictR1TP=0.0;
 // Tradable zone bound to the current approved Worker event, not chart persistence.
 double g_ictR1TradeZoneLow=0.0,g_ictR1TradeZoneHigh=0.0;
 string g_r2PendingPlanKey = "";
+string g_ict4R2SetupKey = "";
+bool g_r2SmartProtocolOK = false,g_r2MarketViable = false;
+string g_ict4R2AttemptSetup = "";
+datetime g_ict4R2AttemptTime = 0;
 string g_r2LastAttemptPlanKey = "";
 datetime g_r2LastAttemptAt = 0;
 bool   g_r2PendingExecutionInProgress = false;
@@ -4538,11 +4543,23 @@ void ICT4Execute(string engine)
   double tp=r1?g_ictR1TP:
      ((InpR2PendingUseTP2AsFinal&&g_r2TP2>0)?g_r2TP2:g_r2TP1);
   bool allowed=r1?g_ictR1Allowed:g_r2Allowed;
+  if(!r1 && !g_r2SmartProtocolOK)
+  {status="BLOCK | R2 SMART WORKER PROTOCOL";break;}
   if(!r1 && !allowed)
-   {status="WAIT | R2 NO PENDING SETUP: "+g_r2PendingOnlyReason;break;}
+  {status="WAIT | R2 NO SMART SETUP: "+g_r2PendingOnlyReason;break;}
   if(!r1 && (type!="BUY_LIMIT" && type!="SELL_LIMIT" &&
-              type!="BUY_STOP" && type!="SELL_STOP"))
-  {status="BLOCK | R2 NON-PENDING TYPE "+type;break;}
+             type!="BUY_STOP" && type!="SELL_STOP" &&
+             type!="BUY" && type!="SELL"))
+  {status="BLOCK | R2 UNSUPPORTED TYPE "+type;break;}
+  if(!r1 && (type=="BUY" || type=="SELL") &&
+     (!InpR2EnableMarketExecution || !g_r2MarketViable))
+  {status="BLOCK | R2 MARKET NOT AUTHORIZED";break;}
+  if(!r1 && type!="BUY" && type!="SELL" && !g_r2PendingViable)
+  {status="BLOCK | R2 PENDING NOT AUTHORIZED";break;}
+  if(!r1 && g_r2Score<InpR2PendingMinScore)
+  {status="WAIT | R2 SCORE BELOW MINIMUM";break;}
+  if(!r1 && g_r2RR<InpR2PendingMinRR)
+  {status="WAIT | R2 RR BELOW MINIMUM";break;}
   // A legal pending type must ALSO match the proposed trade direction.
   bool typeMatchesSide=(side=="BUY" &&
         (type=="BUY"||type=="BUY_LIMIT"||type=="BUY_STOP")) ||
@@ -4582,14 +4599,17 @@ void ICT4Execute(string engine)
   }
   if(!ValidateStops(side,realEntry,sl,tp,why))
   {status="BLOCK | "+why;break;}
-  string setup=r1?g_ictR1SetupKey:
-    g_r2Strategy+"|"+type+"|"+DoubleToString(entry,_Digits)+"|"+
-    DoubleToString(sl,_Digits);
+  // One BOS+zone identity even when price or order type changes.
+  string setup=r1?g_ictR1SetupKey:g_ict4R2SetupKey;
   if(StringLen(setup)<5){status="BLOCK | INVALID SETUP KEY";break;}
   string basket=AutoBasketHashId(engine,setup);
   string used="ICT4_"+IntegerToString((long)AccountInfoInteger(ACCOUNT_LOGIN))+
               "_"+engine+"_"+basket;
   if(GlobalVariableCheck(used)){status="DONE | ALREADY EXECUTED";break;}
+  if(!r1 && setup==g_ict4R2AttemptSetup &&
+     TimeTradeServer()-g_ict4R2AttemptTime <
+     MathMax(5,InpR2FailedPlanRetrySeconds))
+  {status="WAIT | R2 RETRY COOLDOWN";break;}
   double cap=r1?EffectiveAutoRiskCapPercent()*LearningFactor("R1"):
     MathMax(0.0,InpR2AutoMaxSLRiskPercent)*LearningFactor("R2");
   if(InpEnableMaxSLRiskGuard&&InpMaxSLRiskPercent>0)
@@ -4598,9 +4618,15 @@ void ICT4Execute(string engine)
   if(!CalculateSingleRiskSizedLot(engine,side,realEntry,sl,cap,lot,projected,why))
   {status="BLOCK | "+why;break;}
   bool accepted=false;
+  if(!r1)
+  {
+     g_ict4R2AttemptSetup=setup;
+     g_ict4R2AttemptTime=TimeTradeServer();
+  }
   if(type==side)
   {
-   string cm=engine=="R1"?"XAU_AUTO_I4"+side:"XAU_R2P_I4"+side+"M";
+   // Keep XAU_R2P_ ownership marker for R2 risk and position management.
+   string cm=engine=="R1"?"XAU_AUTO_I4"+side:"XAU_R2P_I4M"+side;
    accepted=SendProtectedMarketOrder(side,lot,sl,tp,
                AutoBasketComment(cm,basket),why);
   }
@@ -7426,7 +7452,7 @@ void DrawVirtualPerformanceRows()
 
 int OnInit()
 {
-   Print("XAU RELEASE | EXEC_PIPELINE_20261017_C | R1/R2 POLL INDEPENDENT | telemetry_only=",
+   Print("XAU RELEASE | EXEC_PIPELINE_20261017_D | R1/R2 POLL INDEPENDENT | telemetry_only=",
       InpTelemetryOnlyStagingMode?"TRUE":"FALSE",
       " | WorkerURL=",InpWorkerBaseURL);
    // Real accounts are permitted, but risk, news and broker guards remain.
@@ -7513,7 +7539,7 @@ int OnInit()
 
    g_autoLastSignalKey = "";
    g_autoExecutionStatus = InpEnableAutoSignalExecutor ? "WAIT READY" : "OFF";
-   g_r2PendingExecutionStatus = InpEnableR2PendingExecutor ? "WAIT R2 PENDING" : "OFF";
+   g_r2PendingExecutionStatus = InpEnableR2PendingExecutor ? "WAIT R2 SMART" : "OFF";
    g_r2PendingPlanKey = "";
 
    if(InpResetAutoExecutorStateOnInit)
@@ -7600,7 +7626,7 @@ int OnInit()
       " | EXECUTION GATED BY INPUTS/NEWS/RISK/SESSION | AUTO PROTECTION=", (InpAutoProtectPositions ? "ON" : "OFF"),
       " | MAX SL RISK GUARD=", (InpEnableMaxSLRiskGuard ? DoubleToString(InpMaxSLRiskPercent, 1) + "%" : "OFF"),
       " | AUTO EXEC=", (InpEnableAutoSignalExecutor ? DoubleToString(EffectiveAutoRiskCapPercent(), 1) + "%" : "OFF"),
-      " | R2 PENDING=", (InpEnableR2PendingExecutor ? "ON" : "OFF")
+      " | R2 SMART=", (InpEnableR2PendingExecutor ? "ON" : "OFF")
    );
 
    if(InpNewsTierSelfTestOnInit && !NewsTierSelfTest())
@@ -10566,8 +10592,9 @@ void DrawCompactZonePanel()
       DashboardCollectRow(9,r2VisualStatus,
          R2WatchSnapshotFresh()?InpPanelR2Color:InpPanelMutedColor);
       DashboardCollectRow(9,"R2 STATUS "+
-         (g_r2Allowed && g_r2PendingViable ?
-          "PENDING CANDIDATE":"WATCH ONLY / NO ENTRY"),
+         (g_r2Allowed && g_r2MarketViable ? "MARKET READY" :
+          (g_r2Allowed && g_r2PendingViable ?
+          "PENDING READY":"WATCH ONLY / NO ENTRY")),
          InpPanelMutedColor);
    }
 
@@ -11928,6 +11955,9 @@ void ResetR2VisualState()
    g_r2Allowed = false;
    g_r2PendingProtocolOK = false;
    g_r2PendingViable = false;
+   g_r2SmartProtocolOK = false;
+   g_r2MarketViable = false;
+   g_ict4R2SetupKey = "";
    g_r2PendingOnlyReason = "WAIT_FOR_WORKER_R2";
    g_r2LastFreshPollServer = 0;
    g_r2WatchBuyLow=0.0;
@@ -12416,14 +12446,14 @@ void PollR2Visuals()
    }
 
    // Adaptive v4 requires a new Worker; old pending-only routes fail closed.
-   int modeAt=StringFind(response,"\"pending_only_mode\":true");
+   int modeAt=StringFind(response,"\"smart_execution_mode\":true");
    int marketAt=StringFind(response,"\"market\":{");
    bool verified=StringFind(response,"\"strategy_model\":\"ICT_SMC_V4_LIVE\"")>=0;
    if(!verified || modeAt<0 || (marketAt>=0 && modeAt>marketAt))
    {
       ResetR2VisualState();
       BridgeObserve("R2",false,status);
-      AuditState("R2","PROTOCOL","ICT_V4_R2_PENDING_ONLY_WORKER_REQUIRED");
+      AuditState("R2","PROTOCOL","ICT_V4_R2_SMART_WORKER_REQUIRED");
       return;
    }
    // A successful HTTP response does not imply fresh price/candle data.
@@ -12485,13 +12515,16 @@ void PollR2Visuals()
          "\"allowed\":true"
       ) >= 0;
    g_r2PendingProtocolOK = true;
-   g_ictR2ModelOK = true;
+   g_r2SmartProtocolOK = StringFind(setupJson,"\"smart_execution_mode\":true")>=0;
+   g_ictR2ModelOK = g_r2SmartProtocolOK;
    g_r2PendingViable =
       StringFind(setupJson,"\"pending_viable\":true")>=0;
+   g_r2MarketViable = StringFind(setupJson,"\"market_viable\":true")>=0;
+   g_ict4R2SetupKey=JsonGetString(setupJson,"setup_key");
    g_r2PendingOnlyReason =
-      JsonGetString(setupJson,"pending_only_reason");
+      JsonGetString(setupJson,"execution_reason");
    if(g_r2PendingOnlyReason=="")
-      g_r2PendingOnlyReason="PENDING_NO_DETAIL";
+      g_r2PendingOnlyReason="SMART_NO_DETAIL";
    g_r2LastFreshPollServer=TimeTradeServer();
 
    // Worker v2.6 swing WATCH fields are not trading candidates.
