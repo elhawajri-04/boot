@@ -8606,4 +8606,6 @@ async function calculateR2Swing(env){
 
 // Pure diagnostic exports for offline Node regression tests (no routes).
 export { r2Candidate as __testR2Candidate,
-         r2PendingPlacementCheck as __testPendingPlacement };
+         r2PendingPlacementCheck as __testPendingPlacement,
+         ICTV4 as __testICTV4,
+         ictV4SidePlan as __testIctV4SidePlan };
