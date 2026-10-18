@@ -1,36 +1,29 @@
-# XAU Current Release, EXEC_PIPELINE_20261017_E
+# XAU current code release, EXEC_PIPELINE_20261018_F
 
-## Current files
-- [EA, XAU_EA_SmartExec_E.mq5](./XAU_EA_SmartExec_E.mq5)
-- [Worker, XAU_Worker_SmartExec_E.js](./XAU_Worker_SmartExec_E.js)
-- [Regression tests, test_xau_smart_exec_e.mjs](./test_xau_smart_exec_e.mjs)
+This document marks the **latest published source release**, not proof that this version has been compiled or installed on the running MT5 chart.
 
-This is the current working release. Earlier releases are retained for rollback and are not assumed to be active.
+## Latest compatible pair
+- **MT5 EA:** [XAU_EA_SmartExec_F.mq5](./XAU_EA_SmartExec_F.mq5)
+- **Cloudflare Worker:** [XAU_Worker_SmartExec_E.js](./XAU_Worker_SmartExec_E.js) (UNCHANGED from release E)
+- **Diagnostic report:** [EXECUTION_F_DIAGNOSTIC_REPORT.md](./research/execution_audit/EXECUTION_F_DIAGNOSTIC_REPORT.md)
+- **Offline audit classifier:** [diagnose_audit.py](./research/execution_audit/diagnose_audit.py)
+- **Tests:** [test_diagnose_audit.py](./tests/test_diagnose_audit.py) and [test_ea_f_static.py](./tests/test_ea_f_static.py)
+- **Sanitized aggregate historical counts:** [audit_classification_oct2026.json](./research/execution_audit/audit_classification_oct2026.json)
 
-## What changed from D2
-- Removed the demo/research-only `InpTelemetryOnlyStagingMode` Input entirely, avoiding an active EA that silently logs without sending orders.
-- `OnTick` and `OnTimer` now always reach the normal R1/R2 execution paths.
-- There is no account-mode check that blocks execution because an account is or is not DEMO.
-- Updated release identifier to `EXEC_PIPELINE_20261017_E` and Worker build to `XAU_V4_ICT_SMC_SMART_EXEC_20261017_E`.
-- R2 Smart Execution retains Market/Limit/Stop selection based on an approved setup. R1 remains independent.
+## What changed in EA F
+EA F is an **observability-only** update to E. It splits the formerly ambiguous `BLOCK | WORKER MODEL/AGE` status into model-unverified, feed-missing and feed-stale reasons, and adds separate R1/R2 poll health to Experts logs. Removes the leftover `telemetry_only=FALSE` label from the periodic diagnostic and replaces it with `mode=ACTIVE`.
 
-## NOT changed
-- Broker-side order validation, stop-loss/take-profit rules, risk calculations and combined XAU exposure guard.
-- R1 M30 context with M5 confirmation and nearest valid closed-M5 swing + ATR stop.
-- R2 structural, ICT/SMC, price-placement, score, R:R, news and feed freshness criteria.
-- Existing pending-order lifecycle (e.g. cancellation of stale/invalid/unmatched orders), retry and duplicate suppression. No new demo-driven cancellation conditions were added.
-- MT5 integrated trading inputs for normal strategy toggles and protection; only the telemetry-only gate was removed.
+The execution decisions, R1/R2 strategies, risk sizing, news/session guards, pending-order cancellation lifecycle, order sending, and manual-position protection **have not been changed**. There is **no account-type gate, demo-only lock or telemetry-only input**.
 
-## Verification
-- JavaScript syntax check passed (`node --check`).
-- 44 Node regression checks passed (without broker orders).
-- Uploaded source verified against GitHub blob SHA.
-- MQL5 MetaEditor compilation and connected MT5 trading were not executable in this environment and remain unverified.
+## Verification and usage
+- 17 local regression tests passed (including static E-versus-F checks).
+- **MetaEditor compilation of F not yet verified**, and live terminal connectivity has not been observed.
+- If EA E is currently running on the chart, that running terminal is **still on E** until EA F is compiled and attached.
+- In MetaEditor compile EA F via F7, then confirm the Experts log announces `EXEC_PIPELINE_20261018_F`.
+- Keep the existing **Worker E** deployed. Its `build` is `XAU_V4_ICT_SMC_SMART_EXEC_20261017_E`.
+- Check fresh R1/R2 `poll_health`, model, setup, execution and broker retcode during market-open periods. A Sunday `OFF | SESSION` does not establish an execution fault.
 
-## Run
-1. Deploy `XAU_Worker_SmartExec_E.js` to the existing intended Worker deployment.
-2. Open `XAU_EA_SmartExec_E.mq5` in MetaEditor, compile with F7 and check compiler output.
-3. Attach to the intended MT5 XAU chart and provide the correct Worker URL + write token, keeping established safety inputs in place.
-4. Inspect Experts logs for `EXEC_PIPELINE_20261017_E`, Worker `/health` build and R1/R2 signal and execution state.
+## Previous release / rollback
+EA E remains available unchanged: [XAU_EA_SmartExec_E.mq5](./XAU_EA_SmartExec_E.mq5). Do not mistake the old October audit's `Pending Only` refusals for evidence that the E Worker still has that protocol issue.
 
-Do not confuse successful offline checks with confirmed broker execution.
+Strategy research including COMEX and MT5 quote volume remains separate from these trading sources.
