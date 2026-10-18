@@ -1,0 +1,87 @@
+{
+  "status": "EXPLORATORY_OBSERVATION_ONLY",
+  "trained_before": "2026-02-05 00:00:00+00:00",
+  "train_count": 271,
+  "holdout_count": 182,
+  "holdout_dates": [
+    "2026-02-05",
+    "2026-02-06"
+  ],
+  "holdout_up_rate_pct": 50.55,
+  "holdout_pred_next_range_mae_usd": {
+    "train_median_only": 10.9262,
+    "current_bar_range_plus_quote_activity": 9.0423,
+    "baseline_plus_poc_value_area": 10.0898
+  },
+  "holdout_pred_next_range_rmse_usd": {
+    "train_median_only": 14.1234,
+    "current_bar_range_plus_quote_activity": 12.0833,
+    "baseline_plus_poc_value_area": 12.9413
+  },
+  "holdout_groups": {
+    "above_value": {
+      "count": 40,
+      "next_up_pct": 57.5,
+      "next_range_mean_usd": 27.4913,
+      "mean_next_return_from_publication_bid_usd": 0.7983,
+      "outside_value_continuation_pct": 57.5
+    },
+    "below_value": {
+      "count": 42,
+      "next_up_pct": 47.62,
+      "next_range_mean_usd": 29.3731,
+      "mean_next_return_from_publication_bid_usd": -1.6188,
+      "outside_value_continuation_pct": 52.38
+    },
+    "inside_value": {
+      "count": 100,
+      "next_up_pct": 49.0,
+      "next_range_mean_usd": 25.0963,
+      "mean_next_return_from_publication_bid_usd": -0.0016,
+      "outside_value_continuation_pct": null
+    },
+    "poc_reversion_all": {
+      "count": 182,
+      "next_move_toward_poc_pct": 49.45
+    }
+  },
+  "train_groups": {
+    "above_value": {
+      "count": 66,
+      "next_up_pct": 56.06,
+      "next_range_mean_usd": 29.4338,
+      "mean_next_return_from_publication_bid_usd": 1.8711,
+      "outside_value_continuation_pct": 56.06
+    },
+    "below_value": {
+      "count": 53,
+      "next_up_pct": 67.92,
+      "next_range_mean_usd": 43.5706,
+      "mean_next_return_from_publication_bid_usd": 3.1368,
+      "outside_value_continuation_pct": 32.08
+    },
+    "inside_value": {
+      "count": 152,
+      "next_up_pct": 45.39,
+      "next_range_mean_usd": 33.0451,
+      "mean_next_return_from_publication_bid_usd": -0.9876,
+      "outside_value_continuation_pct": null
+    },
+    "poc_reversion_all": {
+      "count": 271,
+      "next_move_toward_poc_pct": 52.77
+    }
+  },
+  "timing_and_input": {
+    "raw_feature_windows": 460,
+    "m15_bar_matches": 460,
+    "eligible_after_full_publication_and_contiguity": 453,
+    "excluded_total": 7,
+    "delayed_over_60_seconds": 6,
+    "unmatched_publication_ticks_on_otherwise_valid_windows": 0,
+    "real_volume_nonzero_m15_rows": 0,
+    "first_window": "2026-02-02 01:30:00+00:00",
+    "last_window": "2026-02-06 23:30:00+00:00"
+  },
+  "interpretation": "No trade setups, bid/ask fills, real_volume, COMEX trades, or execution outcomes inferred."
+}
