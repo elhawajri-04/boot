@@ -1,0 +1,130 @@
+{
+  "scope": "HISTORICAL_AUDIT_COUNTS_NOT_DISTINCT_OPPORTUNITIES",
+  "rows": 1889,
+  "first_server_time": "2026-10-15 18:45:38",
+  "last_server_time": "2026-10-18 14:53:31",
+  "by_day": {
+    "2026-10-15": {
+      "EXISTING_EXPOSURE": 34,
+      "LEGACY_R2_PENDING_PROTOCOL": 3,
+      "NEWS_GUARD": 8,
+      "OTHER_STRATEGY_STATE": 21,
+      "OTHER_TELEMETRY": 31,
+      "RISK_GUARD_OR_RISK_LOG": 5,
+      "SESSION_GUARD": 21,
+      "UNQUALIFIED_SIGNAL": 176,
+      "WORKER_MODEL_OR_STALE_FEED": 6
+    },
+    "2026-10-16": {
+      "BROKER_HISTORY": 2,
+      "EXECUTION_LOGGED_NOT_BROKER_VERIFIED": 3,
+      "EXISTING_EXPOSURE": 54,
+      "LEGACY_R2_PENDING_PROTOCOL": 903,
+      "NEWS_GUARD": 2,
+      "OTHER_STRATEGY_STATE": 126,
+      "OTHER_TELEMETRY": 48,
+      "RISK_GUARD_OR_RISK_LOG": 4,
+      "SESSION_GUARD": 35,
+      "UNQUALIFIED_SIGNAL": 66,
+      "WORKER_MODEL_OR_STALE_FEED": 69
+    },
+    "2026-10-17": {
+      "OTHER_STRATEGY_STATE": 1,
+      "OTHER_TELEMETRY": 18,
+      "SESSION_GUARD": 145,
+      "WORKER_MODEL_OR_STALE_FEED": 68
+    },
+    "2026-10-18": {
+      "OTHER_TELEMETRY": 2,
+      "SESSION_GUARD": 28,
+      "WORKER_MODEL_OR_STALE_FEED": 10
+    }
+  },
+  "by_day_engine": {
+    "2026-10-15/LEARN": {
+      "OTHER_TELEMETRY": 16
+    },
+    "2026-10-15/NEWS": {
+      "OTHER_TELEMETRY": 15
+    },
+    "2026-10-15/R1": {
+      "EXISTING_EXPOSURE": 34,
+      "NEWS_GUARD": 8,
+      "OTHER_STRATEGY_STATE": 18,
+      "RISK_GUARD_OR_RISK_LOG": 2,
+      "SESSION_GUARD": 21,
+      "UNQUALIFIED_SIGNAL": 61,
+      "WORKER_MODEL_OR_STALE_FEED": 3
+    },
+    "2026-10-15/R2": {
+      "LEGACY_R2_PENDING_PROTOCOL": 3,
+      "OTHER_STRATEGY_STATE": 3,
+      "RISK_GUARD_OR_RISK_LOG": 3,
+      "UNQUALIFIED_SIGNAL": 115,
+      "WORKER_MODEL_OR_STALE_FEED": 3
+    },
+    "2026-10-16/LEARN": {
+      "OTHER_TELEMETRY": 20
+    },
+    "2026-10-16/NEWS": {
+      "OTHER_TELEMETRY": 28
+    },
+    "2026-10-16/R1": {
+      "EXECUTION_LOGGED_NOT_BROKER_VERIFIED": 3,
+      "EXISTING_EXPOSURE": 12,
+      "NEWS_GUARD": 1,
+      "OTHER_STRATEGY_STATE": 72,
+      "RISK_GUARD_OR_RISK_LOG": 4,
+      "SESSION_GUARD": 35,
+      "UNQUALIFIED_SIGNAL": 50,
+      "WORKER_MODEL_OR_STALE_FEED": 45
+    },
+    "2026-10-16/R2": {
+      "BROKER_HISTORY": 2,
+      "EXISTING_EXPOSURE": 42,
+      "LEGACY_R2_PENDING_PROTOCOL": 903,
+      "NEWS_GUARD": 1,
+      "OTHER_STRATEGY_STATE": 54,
+      "UNQUALIFIED_SIGNAL": 16,
+      "WORKER_MODEL_OR_STALE_FEED": 24
+    },
+    "2026-10-17/LEARN": {
+      "OTHER_TELEMETRY": 9
+    },
+    "2026-10-17/NEWS": {
+      "OTHER_TELEMETRY": 9
+    },
+    "2026-10-17/R1": {
+      "SESSION_GUARD": 69,
+      "WORKER_MODEL_OR_STALE_FEED": 27
+    },
+    "2026-10-17/R2": {
+      "OTHER_STRATEGY_STATE": 1,
+      "SESSION_GUARD": 76,
+      "WORKER_MODEL_OR_STALE_FEED": 41
+    },
+    "2026-10-18/LEARN": {
+      "OTHER_TELEMETRY": 1
+    },
+    "2026-10-18/NEWS": {
+      "OTHER_TELEMETRY": 1
+    },
+    "2026-10-18/R1": {
+      "SESSION_GUARD": 14,
+      "WORKER_MODEL_OR_STALE_FEED": 5
+    },
+    "2026-10-18/R2": {
+      "SESSION_GUARD": 14,
+      "WORKER_MODEL_OR_STALE_FEED": 5
+    }
+  },
+  "engine_event_counts": {
+    "LEARN/RESULTS": 46,
+    "NEWS/DECISION": 53,
+    "R1/EXECUTED": 3,
+    "R1/REJECT": 1,
+    "R1/STATE": 480,
+    "R2/BROKER_HISTORY": 2,
+    "R2/STATE": 1304
+  }
+}
