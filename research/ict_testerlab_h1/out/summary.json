@@ -1,0 +1,148 @@
+{
+  "scope": "OFFLINE_RESEARCH_NOT_MT5_TESTER",
+  "source_worker": "USER_UPLOADED_H",
+  "disclaimer": "MT5 EA H1 broker routing/active manager/news/calendar/session/margin NOT fully modeled; 100 oz contract ASSUMED; ignore as claim of profitability.",
+  "data_time_window_unix": [
+    1769994084,
+    1770422279
+  ],
+  "tick_count": 2491352,
+  "decision_instants": 1379,
+  "original_balance": 1000,
+  "ending_balance": 951.1900000000096,
+  "net_closed_pnl": -48.81,
+  "maximum_closed_equity_drawdown_pct": 8.1,
+  "candidate_count": {
+    "R1": 4,
+    "R2": 0
+  },
+  "candidate_order_types": {
+    "R1": {
+      "SELL_LIMIT": 3,
+      "BUY_LIMIT": 1
+    },
+    "R2": {}
+  },
+  "signal_reasons": {
+    "R1": [
+      [
+        "WAIT_SWEEP",
+        545
+      ],
+      [
+        "WAIT_R1_M30_CONTEXT_H1_MIXED_M30_MIXED_BARS_119_119",
+        288
+      ],
+      [
+        "WAIT_R1_M30_CONTEXT_H1_SELL_M30_MIXED_BARS_119_119",
+        263
+      ],
+      [
+        "WAIT_UNMITIGATED_FVG_OB",
+        104
+      ],
+      [
+        "WAIT_BOS_CHOCH",
+        101
+      ],
+      [
+        "WAIT_R1_M30_CONTEXT_H1_BUY_M30_MIXED_BARS_119_119",
+        60
+      ],
+      [
+        "ICT_SMC_CONFIRMED",
+        7
+      ],
+      [
+        "WATCH_VALUE",
+        6
+      ],
+      [
+        "ICT_SMC_CONFIRMED_COUNTER_H1",
+        2
+      ],
+      [
+        "WAIT_EVENT_SEQUENCE",
+        2
+      ],
+      [
+        "WAIT_VALID_EXECUTION_PRICE",
+        1
+      ]
+    ],
+    "R2": [
+      [
+        "WAIT_SWEEP",
+        309
+      ],
+      [
+        "WAIT_R2_HTF_ALIGNMENT_H1_MIXED_M30_MIXED_BARS_119_119",
+        288
+      ],
+      [
+        "WAIT_R2_HTF_ALIGNMENT_H1_SELL_M30_MIXED_BARS_119_119",
+        263
+      ],
+      [
+        "WAIT_R2_HTF_ALIGNMENT_H1_MIXED_M30_BUY_BARS_119_119",
+        198
+      ],
+      [
+        "WAIT_R2_HTF_ALIGNMENT_H1_SELL_M30_BUY_BARS_119_119",
+        108
+      ],
+      [
+        "WAIT_BOS_CHOCH",
+        93
+      ],
+      [
+        "WAIT_R2_HTF_ALIGNMENT_H1_BUY_M30_MIXED_BARS_119_119",
+        60
+      ],
+      [
+        "WAIT_R2_HTF_ALIGNMENT_H1_BUY_M30_SELL_BARS_119_119",
+        30
+      ],
+      [
+        "WAIT_UNMITIGATED_FVG_OB",
+        24
+      ],
+      [
+        "WAIT_R2_HTF_ALIGNMENT_H1_MIXED_M30_SELL_BARS_119_119",
+        6
+      ]
+    ]
+  },
+  "open_positions": 0,
+  "pending_orders": 0,
+  "closed_trade_count": 4,
+  "closed_trades_by_engine": {
+    "R1": 4,
+    "R2": 0
+  },
+  "closed_trade_wins": 1,
+  "closed_trade_losses": 3,
+  "total_positive_pnl": 83.04,
+  "total_negative_pnl": -131.85,
+  "rejected": {
+    "risk": 0,
+    "overlap": 0,
+    "nonviable": 0
+  },
+  "research_assumptions": {
+    "contract_size_oz": 100,
+    "account_risk_pct_per_engine": 5,
+    "combined_risk_cap_pct": 10,
+    "min_lot": 0.01,
+    "lot_step": 0.01,
+    "max_lot": 1,
+    "commission_swap_slippage": "NOT_MODELED",
+    "spread": "ACTUAL BID/ASK QUOTES",
+    "entry_timing": "FIRST TICK AFTER CLOSED M5 BAR",
+    "historical_news_gate": "NOT_MODELED",
+    "r1_exit": "WORKER TP1",
+    "r2_exit": "WORKER TP2",
+    "active_manager": "NOT_MODELED",
+    "r1_scalp_SL_override": "NOT_MODELED; uses Worker M5 SL rather than H1 local-pivot tightening"
+  }
+}
