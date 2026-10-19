@@ -1,25 +1,31 @@
-# XAU latest published source, EXEC_PIPELINE_20261019_G
+# XAU latest published source, EXEC_PIPELINE_20261019_H
 
-**Current intended code pair:** [EA G](./XAU_EA_SmartExec_G.mq5) + [unchanged Worker E](./XAU_Worker_SmartExec_E.js).
+**Current intended pair:** [EA H](./XAU_EA_SmartExec_H.mq5) + [Worker H](./XAU_Worker_SmartExec_H.js).
 
-Published source is not proof the EA has been compiled or attached to the MT5 chart, nor that Worker E is deployed at the URL.
+This is the latest source release, not evidence it has been deployed to Cloudflare or compiled/attached in MT5.
 
-## Why G exists
-The user's October 19 MT5 log revealed repeated `WRONG_WORKER_BUILD` responses from `/health`, while normal strategy waiting and intermittent HTTP errors also occurred. EA F's `/health` probe was incorrectly hardcoded to `XAU_V4_ICT_SMC_ADAPTIVE_MARKET_PENDING` even though intended Worker E declares `XAU_V4_ICT_SMC_SMART_EXEC_20261017_E`. This is a deterministic diagnostic mismatch and does **not** prove the live deployment is Worker E.
+## Purpose
+The October 19 log showed repeated **strategy-level waiting** (`allowed=FALSE`, `type=NONE`), including M30 MIXED, H1/M30 misalignment and a lack of a recent qualifying ICT sequence. No fully qualified broker order rejection was observed in that short log. Intermittent HTTP 1001/1003 and M1 news-shock guard were also observed and remain separate technical/market gates.
 
-G changes **only** the health-probe build comparison and release label. It now reads the actual `build` field and checks against the Worker E build, logging `expected=... got=...` on a mismatch. No trading strategy, R1/R2 execution, Market/Limit/Stop routing, risk limits, SL/TP management, news guards, polling intervals, pending-order cancellation rules or Demo restrictions were added or changed.
+Worker H changes only the **liquidity Sweep search window** from 8 to 14 completed M5/M15 bars. The BOS/CHOCH confirmation **remains strictly within the last 4 completed M5 bars (R1) or 3 completed M15 bars (R2)**. Sweep→Displacement→BOS event order, FVG/OB zone quality, structure, risk limits, SL/TP, duplicate handling, news/session policies and R2 Smart Market/Limit/Stop routing are unchanged. EA H only updates its Worker `/health` build expectation and release marker from EA G; it has **no changed execution logic**.
 
-## Verification
-- 12 standalone Python static regression tests passed with published EA F and Worker E SHA checks.
-- MetaEditor MQL5 compile for G and live Worker deployment check remain **unverified**.
-- [Log diagnostic report](./research/execution_audit/EXECUTION_20261019_G_REPORT.md)
-- [Static test source](./tests/test_worker_build_parity_g.py)
-- Historical volume research has not been connected to trade execution.
+## Files
+- EA: [XAU_EA_SmartExec_H.mq5](./XAU_EA_SmartExec_H.mq5)
+- Worker: [XAU_Worker_SmartExec_H.js](./XAU_Worker_SmartExec_H.js)
+- Test: [test_ict_sweep14_h.mjs](./tests/test_ict_sweep14_h.mjs)
+- Research/replay report: [ICT_SWEEP14_H_REPORT.md](./research/ict_sweep14/ICT_SWEEP14_H_REPORT.md)
 
-## Installation
-1. Replace the previously compiled EA F source with [EA G](./XAU_EA_SmartExec_G.mq5) in MetaEditor and compile with F7.
-2. Continue using Worker E, with actual `/health` JSON `build = XAU_V4_ICT_SMC_SMART_EXEC_20261017_E`, `strategy_model = ICT_SMC_V4_LIVE`, `r2_pending_only_mode = false`, and `r2_market_execution_enabled = true`. If the deployed build differs, deploy the matching Worker E; do not force acceptance of an unknown build.
-3. After G is attached, confirm `EXEC_PIPELINE_20261019_G` appears in Experts and that periodic `PROBE /health` is OK or reports the exact mismatch.
-4. For trade scarcity, independently monitor `allowed`, `type`, reasons, news shock, and intermittent HTTP failures. No broker order attempts were observed in the supplied 13:11–13:30 log, so the log does not evidence an execution refusal of a qualified signal.
+## Evidence
+A limited, **signal-generation-only** historical replay of uploaded JustMarkets OHLC from Jan 13–Feb 6 2026, 5,059 M5-close evaluation instants, yielded:
+- R1 unique authorized setup keys: E=19 vs H=34.
+- R2 unique authorized setup keys: E=1 vs H=5.
 
-Earlier EA versions E and F remain in the repository for rollback.
+These are not executed trades, backtest results, PnL, proof of accuracy, or out-of-sample evidence. Candidate parameters were selected using these same data; additional independent testing remains important. No change to Broker-facing EA logic was made.
+
+Offline Worker H JavaScript syntax and synthetic behavior/diff tests passed. **MetaEditor compile for EA H and remote Cloudflare deployment remain unverified**. Existing EA G / Worker E and all prior versions remain available for rollback.
+
+## Installation and version check
+1. Update Cloudflare Worker to Worker H source.
+2. Compile EA H in MetaEditor and attach over G.
+3. `/health` must show `build: XAU_V4_ICT_SMC_SWEEP14_20261019_H`.
+4. Experts must log `EXEC_PIPELINE_20261019_H`; investigate any `WRONG_WORKER_BUILD`, feed stale, news blocks and broker retcodes if a signal qualifies.
